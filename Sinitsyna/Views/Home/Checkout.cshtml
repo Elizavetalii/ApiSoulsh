@@ -1,0 +1,78 @@
+﻿@model Sinitsyna.Models.ShoppingCart
+
+@{
+    ViewData["Title"] = "Чек заказа";
+}
+
+<div class="checkout" style="background-color: #f5f5dc; padding: 20px; border-radius: 10px;">
+    <h1>Чек заказа</h1>
+
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th style="border: 1px solid #ccc; padding: 10px;">Товар</th>
+                <th style="border: 1px solid #ccc; padding: 10px;">Количество</th>
+                <th style="border: 1px solid #ccc; padding: 10px;">Цена за единицу</th>
+                <th style="border: 1px solid #ccc; padding: 10px;">Итоговая цена позиции</th>
+                <th style="border: 1px solid #ccc; padding: 10px;">Адрес бутика</th>
+                <th style="border: 1px solid #ccc; padding: 10px;">Время работы</th>
+            </tr>
+        </thead>
+        <tbody>
+            @for (int i = 0; i < Model.CartLines.Count; i++)
+            {
+                var cartLine = Model.CartLines[i];
+                var boutiqueDetail = ((List<Boutique>)ViewBag.BoutiqueDetails)[i];
+
+                <tr>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@cartLine.Product.Product_name</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@cartLine.Quantity</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@String.Format("{0:C}", cartLine.Product.Price)</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@String.Format("{0:C}", cartLine.Product.Price * cartLine.Quantity)</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@boutiqueDetail.Boutique_address</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">
+                        @boutiqueDetail.Opening_time.ToString(@"hh\:mm") - @boutiqueDetail.Closing_time.ToString(@"hh\:mm")
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h3>Общая цена: @String.Format("{0:C}", ViewBag.TotalPrice)</h3>
+
+    <a href="/Home/Catalog" class="btn btn-primary" style="margin-top: 20px;">Вернуться к каталогу</a>
+</div>
+
+<style>
+    .checkout {
+        max-width: 800px;
+        margin: auto;
+        border: 1px solid #ccc;
+        border-radius: 10px;
+        padding: 20px;
+        background-color: #f5f5dc;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    th, td {
+        border: 1px solid #ccc;
+        padding: 10px;
+        text-align: left;
+    }
+
+    .btn {
+        background-color: #d4c29a;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        text-decoration: none;
+    }
+
+        .btn:hover {
+            background-color: #b8a97b;
+        }
+</style>

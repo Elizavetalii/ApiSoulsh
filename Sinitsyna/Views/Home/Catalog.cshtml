@@ -1,4 +1,5 @@
-﻿@model (IEnumerable<Sinitsyna.Models.Product>, IEnumerable<Sinitsyna.Models.ProductMaterial>, IEnumerable<Sinitsyna.Models.ProductType>);
+﻿@model Sinitsyna.Models.CatalogViewModel
+
 
 @{
     ViewData["Title"] = "Каталог";
@@ -23,7 +24,8 @@
         <div class="col-3" style="background-color: #333; padding: 15px;">
             <h5 style="text-align: center;color: #fefbd8;">Все категории</h5>
             <h5 style="text-align: center;color: #ffff;">Материалы</h5>
-            @foreach (var material in Model.Item2)
+
+            @foreach (var material in Model.Materials)
             {
                 <a href="#" class="d-block" style="color: #fefbd8; margin: 0 10px;">
                     @material.Material_name
@@ -31,49 +33,138 @@
             }
 
             <h5 style="text-align: center;color: #ffff;">Типы товаров</h5>
-            @foreach (var type in Model.Item3)
+            @foreach (var type in Model.Types)
             {
                 <a href="#" class="d-block" style="color: #fefbd8; margin: 0 10px;">
                     @type.Product_type_name
                 </a>
             }
+
+
         </div>
 
-        <div class="col-9">
-            <div class="row">
-                @if (Model.Item1 != null && Model.Item1.Any())
-                {
-                    foreach (var item in Model.Item1)
-                    {
-                        <div class="col-md-4">
-                            <div class="card">
-                                <img src="@item.ProductImages?.FirstOrDefault()?.Url_image" class="card-img-top" alt="@item.Product_name" />
-                                <div class="card-body">
-                                    <h5 class="card-title">@item.Product_name</h5>
-                                    <p class="card-text">Описание: @item.Product_description</p>
-                                    <p class="card-text"><strong>Цена:</strong> @item.Price.ToString("C")</p>
-                                    <p class="card-text"><strong>Доступное количество:</strong> @item.Quantity</p>
-                                    <div class="btn-toolbar">
-                                        <a href="#" title="Добавить товар в заказ" class="btn-beige">Добавить в заказ</a>
-                                        <button class="btn btn-heart" title="Добавить в избранное" data-is-favorite="false">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-heart">
-                                                <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
+    <div class="col-9">
+        <div class="row">
+            @foreach (var item in Model.Products) // Используем Model.Products для отображения товаров
+            {
+                <div class="col-md-4">
+                    <div class="card">
+                        <img src="@item.ProductImages?.FirstOrDefault()?.Url_image" class="card-img-top" alt="@item.Product_name" />
+                        <div class="card-body">
+                            <h5 class="card-title">@item.Product_name</h5>
+                            <p class="card-text">Описание: @item.Product_description</p>
+                            <p class="card-text"><strong>Цена:</strong> @item.Price.ToString("C")</p>
+                            <p class="card-text"><strong>Доступное количество:</strong> @item.Quantity</p>
+
+                            <!-- Кнопка "Добавить в заказ" -->
+                            <a href="#" title="Добавить товар в заказ" class="btn-beige add-to-cart-btn" data-product-id="@item.Id_product"
+                               data-in-cart="@((Model.ShoppingCart.CartLines.Any(cl => cl.Product.Id_product == item.Id_product)) ? "true" : "false")">
+                                @(Model.ShoppingCart.CartLines.Any(cl => cl.Product.Id_product == item.Id_product) ? "Товар в вашем заказе" : "Добавить в заказ")
+                            </a>
+
+                            <!-- Элементы управления количеством (по умолчанию скрыты) -->
+                            <div class="quantity-control" style="display: @(Model.ShoppingCart.CartLines.Any(cl => cl.Product.Id_product == item.Id_product) ? "flex" : "none")">
+                                <button class="btn-decrease" data-product-id="@item.Id_product">-</button>
+                                <span class="quantity" id="quantity-@item.Id_product" style="color: white;">
+                                    @(Model.ShoppingCart.CartLines.FirstOrDefault(cl => cl.Product.Id_product == item.Id_product)?.Quantity ?? 1)
+                                </span>                             
+                                <button class="btn-increase" data-product-id="@item.Id_product">+</button>
                             </div>
                         </div>
-                    }
-                }
-                else
-                {
-                    <p>Нет доступных продуктов.</p>
-                }
-            </div>
+                    </div>
+                </div>
+            }
         </div>
     </div>
-    <script>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const addToCartButtons = document.querySelectorAll('.add-to-cart-btn');
+
+        addToCartButtons.forEach(button => {
+            button.addEventListener('click', function (event) {
+                event.preventDefault(); // Остановить переход по ссылке
+                const productId = this.getAttribute('data-product-id');
+                const quantityElement = document.getElementById(`quantity-${productId}`);
+                const quantity = parseInt(quantityElement.textContent); // Получаем текущее количество
+
+                // Проверяем, добавлен ли товар в корзину
+                if (this.getAttribute('data-in-cart') === 'false') {
+                    fetch(`/Home/AddToCart?Id=${productId}&Quantity=${quantity}`)
+                        .then(response => {
+                            if (response.ok) {
+                                this.textContent = 'Товар в вашем заказе'; // Меняем текст кнопки
+                                this.setAttribute('data-in-cart', 'true'); // Обновляем состояние кнопки
+
+                                // Показать элементы управления количеством
+                                const quantityControl = this.nextElementSibling; // Получаем элементы управления
+                                quantityControl.style.display = 'flex'; // Или 'block', в зависимости от вашего CSS
+                            } else {
+                                console.error('Ошибка при добавлении товара в корзину');
+                            }
+                        })
+                        .catch(error => console.error('Ошибка:', error));
+                }
+            });
+        });
+
+        const decreaseButtons = document.querySelectorAll('.btn-decrease');
+        const increaseButtons = document.querySelectorAll('.btn-increase');
+
+        decreaseButtons.forEach(button => {
+            button.addEventListener('click', function () {
+                const productId = this.getAttribute('data-product-id');
+                const quantityElement = document.getElementById(`quantity-${productId}`);
+                let quantity = parseInt(quantityElement.textContent);
+
+                if (quantity > 1) {
+                    quantity--;
+                    quantityElement.textContent = quantity;
+                    updateCatalogAndCart(productId, quantity); // Обновляем количество и в каталоге, и в корзине
+                }
+            });
+        });
+
+        increaseButtons.forEach(button => {
+            button.addEventListener('click', function () {
+                const productId = this.getAttribute('data-product-id');
+                const quantityElement = document.getElementById(`quantity-${productId}`);
+                let quantity = parseInt(quantityElement.textContent);
+
+                // Получаем доступное количество товара из базы данных или другого источника
+                const availableQuantity = parseInt(this.closest('.card-body').querySelector('.card-text:nth-of-type(3)').textContent.split(': ')[1]);
+
+                if (quantity < availableQuantity) {
+                    quantity++;
+                    quantityElement.textContent = quantity;
+                    updateCatalogAndCart(productId, quantity); // Обновляем количество и в каталоге, и в корзине
+                } else {
+                    alert('Достигнуто максимальное количество для этого товара.');
+                }
+            });
+        });
+
+        function updateCatalogAndCart(productId, quantity) {
+            // Обновляем количество товара на сервере и синхронизируем с каталогом
+            fetch(`/Home/UpdateCart?Id=${productId}&Quantity=${quantity}`, { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        console.error('Ошибка при обновлении количества товара в корзине');
+                    } else {
+                        syncCatalogWithCart(productId, quantity); // Синхронизируем каталог с корзиной
+                    }
+                })
+                .catch(error => console.error('Ошибка:', error));
+        }
+
+        function syncCatalogWithCart(productId, newQuantity) {
+            // Находим элемент в каталоге и обновляем его количество
+            const catalogQuantityElement = document.getElementById(`quantity-${productId}`);
+            if (catalogQuantityElement) {
+                catalogQuantityElement.textContent = newQuantity; // Обновляем количество в каталоге
+            }
+        }
+    });
         document.querySelectorAll('.btn-heart').forEach(button => {
             button.addEventListener('click', function () {
                 const isFavorite = this.getAttribute('data-is-favorite') === 'true';
@@ -94,5 +185,5 @@
                 }
             });
         });
-    </script>
+</script>
 

@@ -24,10 +24,12 @@ namespace Sinitsyna.Models
         [DataType(DataType.Password)]
         public string User_password { get; set; }
         [Required]
-        public int Id_role { get; set; } = 1;
+        public int Id_role { get; set; }
 
         [ForeignKey("Id_role")]
         public Role Role { get; set; }
+
+        public virtual ICollection<Order> Orders { get; set; }
     }
     
 }

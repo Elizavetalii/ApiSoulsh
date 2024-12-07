@@ -1,0 +1,134 @@
+﻿@model Sinitsyna.Models.ShoppingCart
+<div class="links">
+    <div class="links_item menu_main">
+        @if (Model.CartLines.Count == 0)
+        {
+            <p class="links__item menu_main" style="background-color: #f5f5dc; color: black;">Товаров в заказе нет</p>
+            <a class="links__item menu_main" style="background-color: #f5f5dc; color: black;" href="/">Назад к товарам</a>
+        }
+        else
+        {
+            <div class="cart-items">
+                @foreach (var cartLine in Model.CartLines)
+                {
+                    <div class="cart-item" style="background-color: #f5f5dc; color: black; margin-bottom: 15px; padding: 10px; border-radius: 5px; display: flex;">
+                        <!-- Изображение продукта -->
+
+                        <div class="cart-item-details">
+                            <h3>@cartLine.Product.Product_name</h3>
+                            <p><strong>Описание:</strong> @cartLine.Product.Product_description</p>
+                            <p><strong>Цена:</strong> @cartLine.Product.Price.ToString("C")</p>
+                            <p><strong>Количество:</strong></p>
+
+                            <!-- Элементы управления количеством -->
+                            <div class="quantity-control">
+                                <button class="btn-decrease" data-product-id="@cartLine.Product.Id_product">-</button>
+                                <span class="quantity" id="quantity-@cartLine.Product.Id_product">@cartLine.Quantity</span>
+                                <button class="btn-increase" data-product-id="@cartLine.Product.Id_product">+</button>
+                            </div>
+
+                            <!-- Логика для удаления товара из корзины -->
+                            <a href="/Home/RemoveFromCart?number=@Model.CartLines.IndexOf(cartLine)" class="remove-item">Убрать из корзины</a>
+                        </div>
+                    </div>
+                }
+            </div>
+            <p><strong>Итоговая цена:</strong> @Model.FinalPrice.ToString("C")</p>
+            <a href="/Home/RemoveAllFromCart" onclick="return confirm('Вы уверены, что хотите очистить всю корзину?');" class="btn-clear">
+                Очистить корзину
+            </a>
+
+            <a class="links__item menu_main btn-checkout" href="@Url.Action("Checkout", "Home", new { isDelivery = false })">Оформить заказ</a>
+
+
+        }
+    </div>
+</div>
+
+<style>
+    .cart-items {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .cart-item {
+        display: flex;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .cart-item-details {
+        flex-grow: 1; /* Позволяет текстовой части занимать оставшееся пространство */
+    }
+
+    .remove-item {
+        color: red;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+
+        .remove-item:hover {
+            text-decoration: none;
+        }
+
+    .quantity-control {
+        display: flex;
+        align-items: center;
+    }
+
+        .quantity-control button {
+            margin: 0 5px;
+        }
+</style>
+
+<script>
+    // JavaScript для управления количеством в корзине
+    document.addEventListener('DOMContentLoaded', function () {
+        const decreaseButtons = document.querySelectorAll('.btn-decrease');
+        const increaseButtons = document.querySelectorAll('.btn-increase');
+
+        decreaseButtons.forEach(button => {
+            button.addEventListener('click', function () {
+                const productId = this.getAttribute('data-product-id');
+                const quantityElement = document.getElementById(`quantity-${productId}`);
+                let quantity = parseInt(quantityElement.textContent);
+
+                if (quantity > 1) {
+                    quantity--;
+                    quantityElement.textContent = quantity;
+                    updateCart(productId, quantity); // Обновляем корзину на сервере
+                }
+            });
+        });
+
+        increaseButtons.forEach(button => {
+            button.addEventListener('click', function () {
+                const productId = this.getAttribute('data-product-id');
+                const quantityElement = document.getElementById(`quantity-${productId}`);
+                let quantity = parseInt(quantityElement.textContent);
+
+                // Получаем доступное количество товара из базы данных или другого источника
+                const availableQuantity = parseInt(this.closest('.cart-item').querySelector('p:nth-child(3)').textContent.replace(/[^0-9.-]+/g,"")); // Извлекаем доступное количество
+
+                if (quantity < availableQuantity) {
+                    quantity++;
+                    quantityElement.textContent = quantity;
+                    updateCart(productId, quantity); // Обновляем корзину на сервере
+                } else {
+                    alert('Достигнуто максимальное количество для этого товара.');
+                }
+            });
+        });
+
+        function updateCart(productId, quantity) {
+            fetch(`/Home/UpdateCart?Id=${productId}&Quantity=${quantity}`, { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        console.error('Ошибка при обновлении количества товара в корзине');
+                    }
+                })
+                .catch(error => console.error('Ошибка:', error));
+        }
+    });
+</script>

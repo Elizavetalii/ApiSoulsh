@@ -8,6 +8,7 @@ using Sinitsyna.Models;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Sinitsyna.Controllers
@@ -34,18 +35,55 @@ namespace Sinitsyna.Controllers
             {
                 ViewBag.UserName = user.First_name + " " + user.Last_name;
                 ViewBag.UserRole = user.Role?.Role_name;
+
                 var boutiques = await _context.Boutiques.ToListAsync();
                 var products = await _context.Products.Include(p => p.ProductType)
-                                                      .Include(p => p.ProductMaterial)
-                                                      .Include(p => p.ProductImages)
-                                                      .ToListAsync();
+                                                       .Include(p => p.ProductMaterial)
+                                                       .Include(p => p.ProductImages)
+                                                       .ToListAsync();
                 var materials = await _context.ProductMaterials.ToListAsync();
                 var types = await _context.ProductTypes.ToListAsync();
 
 
-                var model = (products.AsEnumerable(), boutiques.AsEnumerable(), materials.AsEnumerable(), types.AsEnumerable());
+                var orders = await _context.Orders.Include(o => o.OrderItems).ToListAsync();
 
-                return View("ManagerDashboard", model); 
+
+                var totalSales = orders.Sum(o => o.TotalPrice);
+                var salesOverTime = new List<decimal>(new decimal[12]);
+                var salesDistribution = orders.SelectMany(o => o.OrderItems)
+                                    .GroupBy(oi => new { oi.Product.Id_product, oi.Product.Product_name }) // Группируем по ProductId и ProductName
+                                    .Select(g => new SalesDistribution
+                                    {
+                                        ProductId = g.Key.Id_product,
+                                        ProductName = g.Key.Product_name, // Получаем название товара
+                                        TotalQuantity = g.Sum(oi => oi.Quantity)
+                                    }).ToList();
+
+                var now = DateTime.UtcNow;
+                foreach (var order in orders)
+                {
+                    var orderDate = order.OrderDate.Date; // Предполагается, что у вас есть OrderDate в модели Order
+                    if (orderDate >= now.AddMonths(-12))
+                    {
+                        int monthIndex = (orderDate.Month - now.Month + 12) % 12;
+                        salesOverTime[monthIndex] += order.TotalPrice;
+                    }
+                }
+
+                // Создание модели
+                var model = new ManagerViewModel
+                {
+                    Products = products,
+                    Boutiques = boutiques,
+                    Materials = materials,
+                    Types = types,
+                    TotalSales = totalSales,
+                    SalesDistributions = salesDistribution,
+                    SalesOverTime = salesOverTime // Заполнение данных о продажах за последние 12 месяцев
+                };
+
+                return View("ManagerDashboard", model);
+            
             }
 
             if (user != null && user.Id_role == 2)
@@ -70,9 +108,217 @@ namespace Sinitsyna.Controllers
             {
                 ViewBag.UserName = user.First_name + " " + user.Last_name;
                 ViewBag.UserRole = user.Role?.Role_name;
+                HttpContext.Session.Remove("ShoppingCart");
                 return View("Index");
             }
             return View(await _context.Products.ToListAsync());
+        }
+
+        public async Task<IActionResult> Orders()
+        {
+            var orders = await _context.Orders.Include(o => o.OrderItems).ThenInclude(oi => oi.Product).ToListAsync();
+
+            return View(orders);
+        }
+
+        public IActionResult ShoppingCart()
+        {
+            ShoppingCart cart = new ShoppingCart();
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+
+            return View(cart);
+        }
+        [HttpGet]
+        public IActionResult AddToCart(int Id, int Quantity)
+        {
+            ShoppingCart cart;
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+            }
+            else
+            {
+                cart = new ShoppingCart();
+            }
+
+            var product = _context.Products.Find(Id);
+
+            if (product != null)
+            {
+                if (Quantity <= product.Quantity) // Проверка доступного количества
+                {
+                    var existingCartLine = cart.CartLines.FirstOrDefault(cl => cl.Product.Id_product == Id);
+                    if (existingCartLine != null)
+                    {
+                        existingCartLine.Quantity += Quantity; // Увеличиваем количество
+                    }
+                    else
+                    {
+                        cart.CartLines.Add(new CartLine { Product = product, Quantity = Quantity });
+                    }
+
+                    HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+                    return Ok(cart); // Возвращаем обновленную корзину
+                }
+                else
+                {
+                    return BadRequest("Недостаточно товара на складе.");
+                }
+            }
+
+            return NotFound("Товар не найден.");
+        }
+
+        [HttpPost]
+        public IActionResult UpdateCart(int Id, int Quantity)
+        {
+            ShoppingCart cart;
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+
+                var existingCartLine = cart.CartLines.FirstOrDefault(cl => cl.Product.Id_product == Id);
+                if (existingCartLine != null)
+                {
+                    existingCartLine.Quantity = Quantity; // Обновляем количество
+                }
+
+                HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+                return Ok(cart); // Возвращаем обновленную корзину
+            }
+
+            return BadRequest("Корзина пуста.");
+        }
+        public IActionResult Checkout()
+        {
+            ShoppingCart cart;
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+
+                decimal totalPrice = 0;
+                var boutiqueDetails = new List<Boutique>();
+
+                // Проверяем, аутентифицирован ли пользователь
+                if (!User.Identity.IsAuthenticated)
+                {
+                    return RedirectToAction("Login", "Account"); // Перенаправление на страницу входа
+                }
+
+                // Получаем UserId из утверждений
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier); // Обычно используется ClaimTypes.NameIdentifier для ID пользователя
+                int userId = userIdClaim != null ? Convert.ToInt32(userIdClaim.Value) : 0; // Преобразуем значение в int
+
+                // Создаем новый заказ
+                var order = new Order
+                {
+                    UserId = userId, // Устанавливаем UserId
+                    OrderDate = DateTime.Now,
+                    TotalPrice = 0,
+                    OrderItems = new List<OrderItem>()
+                };
+
+                foreach (var cartLine in cart.CartLines)
+                {
+                    var product = _context.Products.Include(p => p.Boutique).FirstOrDefault(p => p.Id_product == cartLine.Product.Id_product);
+                    if (product != null)
+                    {
+                        totalPrice += product.Price * cartLine.Quantity;
+
+                        product.Quantity -= cartLine.Quantity;
+
+                        // Добавляем элемент заказа
+                        order.OrderItems.Add(new OrderItem
+                        {
+                            ProductId = product.Id_product,
+                            Quantity = cartLine.Quantity
+                        });
+
+                        boutiqueDetails.Add(new Boutique
+                        {
+                            Boutique_address = product.Boutique?.Boutique_address ?? "Адрес не указан",
+                            Opening_time = product.Boutique?.Opening_time ?? TimeSpan.Zero,
+                            Closing_time = product.Boutique?.Closing_time ?? TimeSpan.Zero
+                        });
+                    }
+                }
+
+                order.TotalPrice = totalPrice;
+
+                // Сохраняем изменения в базе данных
+                _context.Orders.Add(order);
+                _context.SaveChanges();
+
+                ViewBag.TotalPrice = totalPrice;
+                ViewBag.BoutiqueDetails = boutiqueDetails;
+
+                // Очищаем корзину после оформления заказа
+                HttpContext.Session.Remove("ShoppingCart");
+
+                return View(cart); // Передаем корзину в представление
+            }
+
+            return BadRequest("Корзина пуста.");
+        }
+
+        public IActionResult RemoveFromCart()
+        {
+            int number = Convert.ToInt32(Request.Query["number"]);
+            ShoppingCart cart;
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+
+                // Получаем товар из корзины
+                var cartLine = cart.CartLines[number];
+
+                // Удаляем товар из корзины
+                cart.CartLines.RemoveAt(number);
+
+                // Обновляем корзину в сессии
+                HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+
+                // Если необходимо, можно освободить резервированное количество
+                // InventoryManager.ReleaseProduct(cartLine.Product.Id_product, cartLine.Quantity);
+
+                return Redirect("ShoppingCart"); // Перенаправляем на страницу корзины
+            }
+
+            return BadRequest("Корзина пуста.");
+        }
+
+        public IActionResult RemoveAllFromCart()
+        {
+            ShoppingCart cart = new ShoppingCart();
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+
+                // Освобождаем все товары из корзины (если используется InventoryManager или аналогичный класс)
+                foreach (var cartLine in cart.CartLines)
+                {
+                    // Освобождаем резервированное количество
+                    InventoryManager.ReleaseProduct(cartLine.Product.Id_product, cartLine.Quantity);
+                }
+
+                // Очищаем все товары из корзины
+                cart.CartLines.Clear();
+
+                // Обновляем корзину в сессии
+                HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+            }
+
+            // Очищаем корзину из сессии
+            HttpContext.Session.Remove("ShoppingCart");
+
+            return Redirect("ShoppingCart"); // Перенаправляем на страницу корзины
         }
 
         // Метод для отображения бутиков
@@ -583,7 +829,21 @@ namespace Sinitsyna.Controllers
             var materials = await _context.ProductMaterials.ToListAsync();
             var types = await _context.ProductTypes.ToListAsync();
 
-            var model = (products.AsEnumerable(), materials.AsEnumerable(), types.AsEnumerable());
+            // Получаем корзину из сессии
+            ShoppingCart cart = new ShoppingCart();
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+            }
+
+            // Создаем модель для передачи в представление
+            var model = new CatalogViewModel
+            {
+                Products = products,
+                Materials = materials,
+                Types = types,
+                ShoppingCart = cart // Передаем корзину
+            };
 
             return View(model);
         }
