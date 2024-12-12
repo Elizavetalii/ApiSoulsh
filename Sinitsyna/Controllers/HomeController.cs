@@ -10,6 +10,11 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using OfficeOpenXml; // Убедитесь, что у вас установлена библиотека EPPlus
+using iTextSharp.text; // Убедитесь, что у вас установлена библиотека iTextSharp
+using iTextSharp.text.pdf;
+using System.Text;
+using Newtonsoft.Json; // Убедитесь, что у вас установлена библиотека iTextSharp
 
 namespace Sinitsyna.Controllers
 {
@@ -114,6 +119,125 @@ namespace Sinitsyna.Controllers
             return View(await _context.Products.ToListAsync());
         }
 
+        public async Task<IActionResult> ExportSalesData(string format)
+        {
+            var salesAnalytics = await GetSalesAnalytics();
+
+            if (format == "pdf")
+            {
+                return GeneratePdf(salesAnalytics);
+            }
+            else if (format == "excel")
+            {
+                return GenerateExcel(salesAnalytics);
+            }
+            else if (format == "csv")
+            {
+                return GenerateCsv(salesAnalytics);
+            }
+            else if (format == "json")
+            {
+                return GenerateJson(salesAnalytics);
+            }
+
+            return BadRequest("Неверный формат");
+        }
+
+        private async Task<IEnumerable<SalesAnalytics>> GetSalesAnalytics()
+        {
+            var orders = await _context.Orders.Include(o => o.OrderItems)
+                                               .ThenInclude(oi => oi.Product)
+                                               .ToListAsync();
+
+            var salesData = from order in orders
+                            from item in order.OrderItems
+                            select new SalesAnalytics
+                            {
+                                OrderId = order.Id,
+                                OrderDate = order.OrderDate,
+                                TotalPrice = order.TotalPrice,
+                                ProductName = item.Product.Product_name,
+                                Quantity = item.Quantity,
+                                Price = item.Product.Price
+                            };
+
+            return salesData.ToList();
+        }
+
+        private ActionResult GeneratePdf(IEnumerable<SalesAnalytics> salesData)
+        {
+            using (var stream = new MemoryStream())
+            {
+                var document = new Document();
+                PdfWriter.GetInstance(document, stream);
+                document.Open();
+
+                document.Add(new Paragraph("Аналитика по продажам"));
+                foreach (var sale in salesData)
+                {
+                    document.Add(new Paragraph($"Заказ ID: {sale.OrderId}, Дата: {sale.OrderDate}, Товар: {sale.ProductName}, Количество: {sale.Quantity}, Цена: {sale.Price:C}, Общая сумма: {sale.TotalPrice:C}"));
+                }
+
+                document.Close();
+                return File(stream.ToArray(), "application/pdf", "sales_report.pdf");
+            }
+        }
+
+        private ActionResult GenerateExcel(IEnumerable<SalesAnalytics> salesData)
+        {
+            using (var package = new ExcelPackage())
+            {
+                var worksheet = package.Workbook.Worksheets.Add("Sales Data");
+
+                // Заголовки столбцов
+                worksheet.Cells[1, 1].Value = "ID заказа";
+                worksheet.Cells[1, 2].Value = "Дата заказа";
+                worksheet.Cells[1, 3].Value = "Общая сумма";
+                worksheet.Cells[1, 4].Value = "Название товара";
+                worksheet.Cells[1, 5].Value = "Количество";
+                worksheet.Cells[1, 6].Value = "Цена";
+
+                // Заполнение данными
+                int row = 2;
+                foreach (var sale in salesData)
+                {
+                    worksheet.Cells[row, 1].Value = sale.OrderId;
+                    worksheet.Cells[row, 2].Value = sale.OrderDate;
+                    worksheet.Cells[row, 3].Value = sale.TotalPrice;
+                    worksheet.Cells[row, 4].Value = sale.ProductName;
+                    worksheet.Cells[row, 5].Value = sale.Quantity;
+                    worksheet.Cells[row, 6].Value = sale.Price;
+                    row++;
+                }
+
+                return File(package.GetAsByteArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "sales_report.xlsx");
+            }
+        }
+
+        private ActionResult GenerateCsv(IEnumerable<SalesAnalytics> salesData)
+        {
+            var csvBuilder = new StringBuilder();
+
+            // Заголовки столбцов
+            csvBuilder.AppendLine("ID заказа,Дата заказа,Общая сумма,Название товара,Количество,Цена");
+
+            // Заполнение данными
+            foreach (var sale in salesData)
+            {
+                csvBuilder.AppendLine($"{sale.OrderId},{sale.OrderDate},{sale.TotalPrice},{sale.ProductName},{sale.Quantity},{sale.Price}");
+            }
+
+            return File(Encoding.UTF8.GetBytes(csvBuilder.ToString()), "text/csv", "sales_report.csv");
+        }
+
+        private ActionResult GenerateJson(IEnumerable<SalesAnalytics> salesData)
+        {
+            var jsonResult = JsonConvert.SerializeObject(salesData);
+            return File(Encoding.UTF8.GetBytes(jsonResult), "application/json", "sales_report.json");
+        }
+    
+
+
         public async Task<IActionResult> Orders()
         {
             var orders = await _context.Orders.Include(o => o.OrderItems).ThenInclude(oi => oi.Product).ToListAsync();
@@ -126,7 +250,7 @@ namespace Sinitsyna.Controllers
             ShoppingCart cart = new ShoppingCart();
 
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
-                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
 
             return View(cart);
         }
@@ -137,7 +261,7 @@ namespace Sinitsyna.Controllers
 
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
             }
             else
             {
@@ -160,7 +284,7 @@ namespace Sinitsyna.Controllers
                         cart.CartLines.Add(new CartLine { Product = product, Quantity = Quantity });
                     }
 
-                    HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+                    HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
                     return Ok(cart); // Возвращаем обновленную корзину
                 }
                 else
@@ -179,7 +303,7 @@ namespace Sinitsyna.Controllers
 
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
 
                 var existingCartLine = cart.CartLines.FirstOrDefault(cl => cl.Product.Id_product == Id);
                 if (existingCartLine != null)
@@ -187,7 +311,7 @@ namespace Sinitsyna.Controllers
                     existingCartLine.Quantity = Quantity; // Обновляем количество
                 }
 
-                HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+                HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
                 return Ok(cart); // Возвращаем обновленную корзину
             }
 
@@ -199,7 +323,7 @@ namespace Sinitsyna.Controllers
 
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
 
                 decimal totalPrice = 0;
                 var boutiqueDetails = new List<Boutique>();
@@ -273,7 +397,7 @@ namespace Sinitsyna.Controllers
 
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
 
                 // Получаем товар из корзины
                 var cartLine = cart.CartLines[number];
@@ -282,7 +406,7 @@ namespace Sinitsyna.Controllers
                 cart.CartLines.RemoveAt(number);
 
                 // Обновляем корзину в сессии
-                HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+                HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
 
                 // Если необходимо, можно освободить резервированное количество
                 // InventoryManager.ReleaseProduct(cartLine.Product.Id_product, cartLine.Quantity);
@@ -299,7 +423,7 @@ namespace Sinitsyna.Controllers
 
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
 
                 // Освобождаем все товары из корзины (если используется InventoryManager или аналогичный класс)
                 foreach (var cartLine in cart.CartLines)
@@ -312,7 +436,7 @@ namespace Sinitsyna.Controllers
                 cart.CartLines.Clear();
 
                 // Обновляем корзину в сессии
-                HttpContext.Session.SetString("ShoppingCart", JsonSerializer.Serialize(cart));
+                HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
             }
 
             // Очищаем корзину из сессии
@@ -833,7 +957,7 @@ namespace Sinitsyna.Controllers
             ShoppingCart cart = new ShoppingCart();
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
             }
 
             // Создаем модель для передачи в представление

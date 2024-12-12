@@ -1,6 +1,4 @@
-﻿@*  @model (IEnumerable<Sinitsyna.Models.Product>, IEnumerable<Sinitsyna.Models.Boutique>, IEnumerable<Sinitsyna.Models.ProductMaterial>, IEnumerable<Sinitsyna.Models.ProductType>)
- *@
- @model Sinitsyna.Models.ManagerViewModel
+﻿ @model Sinitsyna.Models.ManagerViewModel
 
 @{
     ViewData["Title"] = "Панель Менеджера";
@@ -29,7 +27,22 @@
 <p>Ваша должность: @ViewBag.UserRole</p>
 
 
-<h3>Диаграммы продаж</h3>
+
+<h3>Экспорт аналитики по продажам:</h3>
+<select id="exportFormat">
+    <option value="pdf">PDF</option>
+    <option value="csv">CSV</option>
+    <option value="json">JSON</option>
+</select>
+<button id="exportButton" style="cursor:pointer;" class="button">Экспортировать</button>
+<script>
+    document.getElementById('exportButton').addEventListener('click', function() {
+        var format = document.getElementById('exportFormat').value;
+        window.location.href = '@Url.Action("ExportSalesData")?format=' + format;
+    });
+</script>
+
+
 <h3>Статистика продаж по товарам:</h3>
 <table>
     <thead>
@@ -48,6 +61,8 @@
         }
     </tbody>
 </table>
+
+<h3>Диаграммы продаж</h3>
 <div>
     <h2>Общее количество продаж</h2>
     <canvas id="totalSalesChart"></canvas>
