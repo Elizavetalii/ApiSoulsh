@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Microsoft.AspNetCore.Identity;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Sinitsyna.Models
@@ -24,10 +25,10 @@ namespace Sinitsyna.Models
         [DataType(DataType.Password)]
         public string User_password { get; set; }
         [Required]
-        public int Id_role { get; set; }
+        public int Id_role { get; set; } = 1;
 
         [ForeignKey("Id_role")]
-        public Role Role { get; set; }
+        public Role Role { get; set; } 
 
         public virtual ICollection<Order> Orders { get; set; }
     }

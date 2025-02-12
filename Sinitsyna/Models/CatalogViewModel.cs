@@ -8,6 +8,13 @@
 
         public IEnumerable<ProductImage> Url_image { get; set; }
 
-        public ShoppingCart ShoppingCart { get; set; } // Добавляем корзину
+        public ShoppingCart ShoppingCart { get; set; }
+        public Dictionary<int, int> ReviewCounts { get; set; } = new Dictionary<int, int>();
+        public Dictionary<int, decimal> AverageRatings { get; set; } = new Dictionary<int, decimal>();
+
+        public bool IsFavorite { get; set; }
+
+
+
     }
 }

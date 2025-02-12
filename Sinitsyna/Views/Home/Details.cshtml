@@ -1,0 +1,219 @@
+﻿@model Sinitsyna.Models.DetailsViewModel
+
+@{
+    ViewData["Title"] = Model.Product.Product_name;
+    Sinitsyna.Models.ShoppingCart cart = null;
+    if (Context.Session.Keys.Contains("ShoppingCart"))
+    {
+        cart = System.Text.Json.JsonSerializer.Deserialize<Sinitsyna.Models.ShoppingCart>(Context.Session.GetString("ShoppingCart"));
+    }
+    bool isInCart = cart?.CartLines?.Any(cl => cl.ProductId == Model.Product.Id_product) ?? false;
+    int quantityInCart = cart?.CartLines?.FirstOrDefault(cl => cl.ProductId == Model.Product.Id_product)?.Quantity ?? 1;
+}
+
+<div class="container">
+    <div class="row">
+        <div class="col-md-6">
+            <img src="@Model.Product.ProductImages?.FirstOrDefault()?.Url_image" class="img-fluid" alt="@Model.Product.Product_name" />
+        </div>
+        <div class="col-md-6">
+            <p>Рейтинг: @Model.AverageRating.ToString("0.00") / 5</p>
+            <p>Количество оценок: @Model.ReviewsCount</p>
+            <h1>@Model.Product.Product_name</h1>
+            <p>@Model.Product.Product_description</p>
+            <p><strong>Цена:</strong> @Model.Product.Price.ToString("C")</p>
+            <p><strong>Доступное количество:</strong> @Model.Product.Quantity</p>
+
+            <div class="add-to-cart-section">
+                <div style="display: flex; align-items: center;">
+                    <a href="#" class="btn-beige add-to-cart-btn" data-product-id="@Model.Product.Id_product" data-in-cart="@(isInCart ? "true" : "false")">
+                        @(isInCart ? "Товар в вашем заказе" : "Добавить в заказ")
+                    </a>
+
+                    @* Контрол количества (плюс/минус), отображается, если товар в корзине *@
+                    <div class="quantity-control" style="display: @(isInCart ? "flex" : "none"); margin-left: 10px;">
+                        <button class="quantity-control button btn-decrease" data-product-id="@Model.Product.Id_product">-</button>
+                        <span class="quantity" id="quantity-@Model.Product.Id_product">
+                            @quantityInCart
+                        </span>
+                        <button class="quantity-control button btn-increase" data-product-id="@Model.Product.Id_product">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-heart" data-product-id="@Model.Product.Id_product" data-is-favorite="@Model.IsFavorite.ToString().ToLower()">
+                @if (Model.IsFavorite)
+                {
+                    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="red">
+                        <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                    </svg>
+                }
+                else
+                {
+                    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-heart">
+                        <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                    </svg>
+                }
+            </button>
+        </div>
+    </div>
+    <hr />
+
+    <hr />
+
+</div>
+
+
+<div>
+    <div>
+        @* Внедряем View Component для отображения среднего рейтинга *@
+        @await Component.InvokeAsync("AverageRating", new { productId = Model.Product.Id_product })
+    </div>
+    <h3>Добавить отзыв:</h3>
+    @await Html.PartialAsync("_AddReviewPartial", Model.AddReview)
+    @* Отображение отзывов *@
+    <h3>Отзывы:</h3>
+    @if (Model.Reviews != null && Model.Reviews.Any())
+    {
+        foreach (var review in Model.Reviews)
+        {
+            @Html.DisplayFor(modelItem => review)
+        }
+    }
+    else
+    {
+        <p>Пока нет отзывов.</p>
+    }
+
+    <hr />
+
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const addToCartButton = document.querySelector('.add-to-cart-btn');
+        const quantityControl = document.querySelector('.quantity-control');
+
+        addToCartButton.addEventListener('click', function (event) {
+            event.preventDefault();
+            const productId = this.getAttribute('data-product-id');
+            const isInCart = this.getAttribute('data-in-cart') === 'true';
+
+            if (!isInCart) {
+                fetch(`/Home/AddToCart?Id=${productId}&Quantity=1`, { method: 'GET' }) // Используем GET, как в вашем коде
+                    .then(response => {
+                        if (response.ok) {
+                            this.textContent = 'Товар в вашем заказе';
+                            this.setAttribute('data-in-cart', 'true');
+                            quantityControl.style.display = 'flex';
+                        } else {
+                            console.error('Ошибка при добавлении товара в корзину');
+                        }
+                    })
+                    .catch(error => console.error('Ошибка:', error));
+            }
+        });
+
+        const decreaseButton = document.querySelector('.btn-decrease');
+        const increaseButton = document.querySelector('.btn-increase');
+
+        decreaseButton.addEventListener('click', function () {
+            const productId = this.getAttribute('data-product-id');
+            let quantityElement = document.getElementById(`quantity-${productId}`);
+            let quantity = parseInt(quantityElement.textContent);
+
+            if (quantity > 1) {
+                quantity--;
+                quantityElement.textContent = quantity;
+                updateQuantity(productId, quantity);
+            }
+        });
+
+        increaseButton.addEventListener('click', function () {
+            const productId = this.getAttribute('data-product-id');
+            let quantityElement = document.getElementById(`quantity-${productId}`);
+            let quantity = parseInt(quantityElement.textContent);
+
+            if (quantity < @Model.Product.Quantity) {
+                quantity++;
+                quantityElement.textContent = quantity;
+                updateQuantity(productId, quantity);
+            } else {
+                alert('Достигнуто максимальное количество для этого товара.');
+            }
+        });
+
+        function updateQuantity(productId, quantity) {
+            fetch(`/Home/UpdateCart?Id=${productId}&Quantity=${quantity}`, { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        console.error('Ошибка при обновлении количества товара в корзине');
+                    }
+                })
+                .catch(error => console.error('Ошибка:', error));
+        }
+        const heartButton = document.querySelector('.btn-heart');
+
+        heartButton.addEventListener('click', function () {
+            const productId = this.getAttribute('data-product-id');
+            const isFavorite = this.getAttribute('data-is-favorite') === 'true';
+            const buttonElement = this; // Сохраняем ссылку на кнопку
+
+            let url = isFavorite ? '/Home/RemoveFavorite' : '/Home/AddFavorite';
+
+            $.ajax({
+                url: url,
+                type: 'POST',
+                data: { productId: productId },
+                success: function (response) {
+                    if (response.success) {
+                        // Меняем состояние кнопки
+                        buttonElement.setAttribute('data-is-favorite', (!isFavorite).toString());
+
+                        // Обновляем иконку
+                        if (isFavorite) {
+                            buttonElement.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-heart">
+                              <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                            </svg>`;
+                        } else {
+                            buttonElement.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="red">
+                              <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                            </svg>`;
+                        }
+                    } else {
+                        alert(response.message);
+                    }
+                },
+                error: function () {
+                    alert("Произошла ошибка при добавлении/удалении товара из избранного.");
+                }
+            });
+        });
+    });
+</script>
+
+
+<style>
+    /* Стили для кнопок +/- */
+    .quantity-control button {
+        background-color: indianred;
+        /* Бежевый цвет фона */
+        color: #000;
+        /* Черный цвет текста */
+        border: none;
+        padding: 5px 10px;
+        border-radius: 5px;
+        /* Округлые края */
+        cursor: pointer;
+        transition: background-color 0.3s;
+        /* Плавный переход цвета при наведении */
+    }
+
+        .quantity-control button:hover {
+            background-color: #e8e3d3;
+            /* Более светлый бежевый цвет при наведении */
+        }
+</style>
+

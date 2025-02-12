@@ -1,4 +1,23 @@
 ﻿@model Sinitsyna.Models.ShoppingCart
+
+<style>
+    /* Стили для кнопок +/- */
+    .quantity-control button {
+        background-color: indianred;
+        /* Бежевый цвет фона */
+        color: #000; /* Черный цвет текста */
+        border: none;
+        padding: 5px 10px;
+        border-radius: 5px; /* Округлые края */
+        cursor: pointer;
+        transition: background-color 0.3s; /* Плавный переход цвета при наведении */
+    }
+
+        .quantity-control button:hover {
+            background-color: #e8e3d3; /* Более светлый бежевый цвет при наведении */
+        }
+</style>
+
 <div class="links">
     <div class="links_item menu_main">
         @if (Model.CartLines.Count == 0)
@@ -12,22 +31,21 @@
                 @foreach (var cartLine in Model.CartLines)
                 {
                     <div class="cart-item" style="background-color: #f5f5dc; color: black; margin-bottom: 15px; padding: 10px; border-radius: 5px; display: flex;">
-                        <!-- Изображение продукта -->
-
+                        @* Изображение товара и ссылка на страницу деталей товара *@
+                        <a href="@Url.Action("Details", "Home", new { id = cartLine.ProductId })" style="text-decoration: none; color: inherit; display: flex;">
+                            <img src="@cartLine.ImageUrl" alt="@cartLine.ProductName" style="width: 100px; height: 100px; object-fit: cover; margin-right: 10px;" />
+                        </a>
                         <div class="cart-item-details">
-                            <h3>@cartLine.Product.Product_name</h3>
-                            <p><strong>Описание:</strong> @cartLine.Product.Product_description</p>
-                            <p><strong>Цена:</strong> @cartLine.Product.Price.ToString("C")</p>
+                            <a href="@Url.Action("Details", "Home", new { id = cartLine.ProductId })" style="text-decoration: none; color: inherit;">
+                                <h3>@cartLine.ProductName</h3>
+                            </a>
+                            <p><strong>Цена:</strong> @cartLine.Price.ToString("C")</p>
                             <p><strong>Количество:</strong></p>
-
-                            <!-- Элементы управления количеством -->
                             <div class="quantity-control">
-                                <button class="btn-decrease" data-product-id="@cartLine.Product.Id_product">-</button>
-                                <span class="quantity" id="quantity-@cartLine.Product.Id_product">@cartLine.Quantity</span>
-                                <button class="btn-increase" data-product-id="@cartLine.Product.Id_product">+</button>
+                                <button class="quantity-control button btn-decrease" data-product-id="@cartLine.ProductId">-</button>
+                                <span class="quantity" id="quantity-@cartLine.ProductId">@cartLine.Quantity</span>
+                                <button class="quantity-control button btn-increase" data-product-id="@cartLine.ProductId">+</button>
                             </div>
-
-                            <!-- Логика для удаления товара из корзины -->
                             <a href="/Home/RemoveFromCart?number=@Model.CartLines.IndexOf(cartLine)" class="remove-item">Убрать из корзины</a>
                         </div>
                     </div>

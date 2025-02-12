@@ -1,0 +1,7 @@
+﻿@model Sinitsyna.Models.ReviewViewModel
+
+<div class="review">
+    <p><strong>@Model.UserName</strong> - Оценка: @Model.Rating/5</p>
+    <p>@Model.Text</p>
+    <small>@Model.CreatedDate.ToLongDateString()</small>
+</div>

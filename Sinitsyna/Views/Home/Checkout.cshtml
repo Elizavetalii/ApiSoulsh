@@ -25,10 +25,10 @@
                 var boutiqueDetail = ((List<Boutique>)ViewBag.BoutiqueDetails)[i];
 
                 <tr>
-                    <td style="border: 1px solid #ccc; padding: 10px;">@cartLine.Product.Product_name</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@cartLine.ProductName</td>
                     <td style="border: 1px solid #ccc; padding: 10px;">@cartLine.Quantity</td>
-                    <td style="border: 1px solid #ccc; padding: 10px;">@String.Format("{0:C}", cartLine.Product.Price)</td>
-                    <td style="border: 1px solid #ccc; padding: 10px;">@String.Format("{0:C}", cartLine.Product.Price * cartLine.Quantity)</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@String.Format("{0:C}", cartLine.Price)</td>
+                    <td style="border: 1px solid #ccc; padding: 10px;">@String.Format("{0:C}", cartLine.Price * cartLine.Quantity)</td>
                     <td style="border: 1px solid #ccc; padding: 10px;">@boutiqueDetail.Boutique_address</td>
                     <td style="border: 1px solid #ccc; padding: 10px;">
                         @boutiqueDetail.Opening_time.ToString(@"hh\:mm") - @boutiqueDetail.Closing_time.ToString(@"hh\:mm")

@@ -14,7 +14,11 @@ using OfficeOpenXml; // Убедитесь, что у вас установле�
 using iTextSharp.text; // Убедитесь, что у вас установлена библиотека iTextSharp
 using iTextSharp.text.pdf;
 using System.Text;
-using Newtonsoft.Json; // Убедитесь, что у вас установлена библиотека iTextSharp
+using Newtonsoft.Json;
+using System.Drawing;
+using System.IO;
+using Microsoft.AspNetCore.Authorization; // Import for [Authorize]
+using System.Security.Claims; // Import for User.Identity.GetUserId()
 
 namespace Sinitsyna.Controllers
 {
@@ -25,6 +29,330 @@ namespace Sinitsyna.Controllers
         public HomeController(AppDbContext context)
         {
             _context = context;
+        }
+
+        [Authorize] // Требуется аутентификация пользователя
+        [HttpPost]
+        public async Task<IActionResult> AddFavorite(int productId)
+        {
+            // Получаем ID пользователя из Claims
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return BadRequest("Не удалось получить ID пользователя.");
+            }
+
+            // Проверяем, не добавлен ли уже этот товар в избранное
+            if (await _context.Favorites.AnyAsync(f => f.Id_user == userId && f.Id_product == productId))
+            {
+                return Ok(new { success = false, message = "Товар уже в избранном." });
+            }
+
+            // Добавляем товар в избранное
+            var favorite = new Favorite
+            {
+                Id_user = userId,
+                Id_product = productId
+            };
+            _context.Favorites.Add(favorite);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { success = true, message = "Товар добавлен в избранное." });
+        }
+
+        [Authorize] // Требуется аутентификация пользователя
+        [HttpPost]
+        public async Task<IActionResult> RemoveFavorite(int productId)
+        {
+            // Получаем ID пользователя из Claims
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return BadRequest("Не удалось получить ID пользователя.");
+            }
+
+            // Удаляем товар из избранного
+            var favorite = await _context.Favorites
+                .FirstOrDefaultAsync(f => f.Id_user == userId && f.Id_product == productId);
+
+            if (favorite == null)
+            {
+                return Ok(new { success = false, message = "Товар не найден в избранном." });
+            }
+
+            _context.Favorites.Remove(favorite);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { success = true, message = "Товар удален из избранного." });
+        }
+
+        [Authorize] // Требуется аутентификация пользователя
+        public async Task<IActionResult> Favorites()
+        {
+            // Получаем ID пользователя из Claims
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return BadRequest("Не удалось получить ID пользователя.");
+            }
+
+            // Получаем список избранных товаров для пользователя
+            var favorites = await _context.Favorites
+                .Where(f => f.Id_user == userId)
+                .Select(f => f.Id_product)
+                .ToListAsync();
+
+            // Получаем информацию о товарах из базы данных
+            var favoriteProducts = await _context.Products
+                .Where(p => favorites.Contains(p.Id_product))
+                .Select(p => new FavoriteViewModel
+                {
+                    Id_product = p.Id_product,
+                    Product_name = p.Product_name,
+                    Price = p.Price,
+                    Url_image = p.ProductImages.FirstOrDefault().Url_image // Получаем URL первого изображения
+                })
+                .ToListAsync();
+
+            return View(favoriteProducts);
+        }
+
+        public async Task<IActionResult> Details(int id)
+        {
+            var product = await _context.Products
+                .Include(p => p.ProductImages)
+                .FirstOrDefaultAsync(p => p.Id_product == id);
+
+            if (product == null)
+            {
+                return NotFound();
+            }
+
+            int userId = 0;
+            if (User.Identity.IsAuthenticated)
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out userId)){}else{}
+            }
+
+            bool isFavorite = false;
+            if (userId > 0)
+            {
+                isFavorite = await _context.Favorites.AnyAsync(f => f.Id_user == userId && f.Id_product == id);
+            }
+
+            ShoppingCart cart = new ShoppingCart();
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+            }
+            else
+            {
+                cart = new ShoppingCart();
+            }
+            // Определяем, находится ли товар в корзине
+            ViewBag.IsInCart = cart.CartLines.Any(cl => cl.ProductId == id);
+
+            // Если товар в корзине, передаем количество
+            ViewBag.QuantityInCart = cart.CartLines.FirstOrDefault(cl => cl.ProductId == id)?.Quantity;
+
+            var reviews = await _context.Reviews
+                .Where(r => r.Id_product == id)
+                .Include(r => r.User) // Include User info for displaying the username
+                .ToListAsync();
+
+            var reviewViewModels = reviews.Select(r => new ReviewViewModel
+            {
+                UserName = r.User.First_name,
+                Rating = r.Rating,
+                Text = r.Text_reviews,
+                CreatedDate = r.Created_date
+            }).ToList();
+
+            // Calculate Average Rating
+            decimal averageRating = 0;
+            if (reviewViewModels.Any())
+            {
+                averageRating = (decimal)reviewViewModels.Average(x => x.Rating);
+            }
+
+            var detailsViewModel = new DetailsViewModel
+            {
+                Product = product,
+                Reviews = reviewViewModels,
+                AddReview = new AddReviewViewModel { ProductId = id },
+                AverageRating = averageRating,
+                ReviewsCount = reviews.Count(),// Pass the average rating to the view model
+                IsFavorite = isFavorite // передаем состояние избранного в ViewModel
+            };
+
+            return View(detailsViewModel);
+        }
+
+        private List<int> GetFavoritesFromSession()
+        {
+            var favoritesString = HttpContext.Session.GetString("favorites");
+            if (string.IsNullOrEmpty(favoritesString))
+            {
+                return new List<int>();
+            }
+            else
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<List<int>>(favoritesString);
+            }
+        }
+    
+        [HttpPost]
+        public IActionResult AddReview(AddReviewViewModel model)
+        {
+            if (!User.Identity.IsAuthenticated)
+            {
+                return RedirectToAction("SignIn", "Home");
+            }
+
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return BadRequest("Не удалось получить ID пользователя.");
+            }
+
+            if (ModelState.IsValid)
+            {
+                var review = new Review
+                {
+                    Id_user = userId,
+                    Id_product = model.ProductId,
+                    Rating = model.Rating,
+                    Text_reviews = model.Text,
+                    Created_date = DateTime.Now
+                };
+
+                _context.Reviews.Add(review);
+                _context.SaveChanges();
+
+                return RedirectToAction("Details", new { id = model.ProductId });
+            }
+
+            // Если модель недействительна, возвращаемся к представлению Details
+            return RedirectToAction("Details", new { id = model.ProductId });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> AddToCart(int Id, int Quantity)
+        {
+            ShoppingCart cart;
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+            }
+            else
+            {
+                cart = new ShoppingCart();
+            }
+
+            var product = await _context.Products
+                .FirstOrDefaultAsync(p => p.Id_product == Id);
+
+            if (product == null)
+            {
+                return NotFound("Товар не найден.");
+            }
+
+            if (Quantity <= product.Quantity) // Проверка доступного количества
+            {
+                var existingCartLine = cart.CartLines.FirstOrDefault(cl => cl.ProductId == Id);
+                if (existingCartLine != null)
+                {
+                    existingCartLine.Quantity += Quantity; // Увеличиваем количество
+                }
+                else
+                {
+                    // Получаем URL первого изображения
+                    string imageUrl = null;
+                    var productImage = await _context.ProductImages
+                        .FirstOrDefaultAsync(pi => pi.Id_product == Id);
+
+                    if (productImage != null)
+                    {
+                        imageUrl = productImage.Url_image;
+                    }
+                    else
+                    {
+                        imageUrl = "/media/default_image.png"; // URL изображения по умолчанию
+                    }
+
+                    cart.CartLines.Add(new CartLine
+                    {
+                        ProductId = product.Id_product,
+                        ProductName = product.Product_name,
+                        Price = product.Price,
+                        ImageUrl = imageUrl,
+                        Quantity = Quantity
+                    });
+                }
+
+                HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
+                return Ok(cart); // Возвращаем обновленную корзину
+            }
+            else
+            {
+                return BadRequest("Недостаточно товара на складе.");
+            }
+        }
+
+        [HttpPost]
+        public IActionResult UpdateCart(int Id, int Quantity)
+        {
+            ShoppingCart cart;
+
+            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            {
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+
+                var existingCartLine = cart.CartLines.FirstOrDefault(cl => cl.ProductId == Id);
+                if (existingCartLine != null)
+                {
+                    existingCartLine.Quantity = Quantity; // Обновляем количество
+                }
+
+                HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
+                return Ok(cart); // Возвращаем обновленную корзину
+            }
+
+            return BadRequest("Корзина пуста.");
+        }
+    
+
+        [HttpPost]
+        public IActionResult UpdateFavorites(int productId, bool add)
+        {
+            // Получаем список "избранного" из сессии
+            List<int> favorites = GetFavoritesFromSession();
+
+            if (add)
+            {
+                if (!favorites.Contains(productId))
+                {
+                    favorites.Add(productId);
+                }
+            }
+            else
+            {
+                favorites.Remove(productId);
+            }
+
+            // Сохраняем обновленный список в сессию
+            SaveFavoritesToSession(favorites);
+
+            return Ok();
+        }
+   
+        private void SaveFavoritesToSession(List<int> favorites)
+        {
+            string favoritesJson = System.Text.Json.JsonSerializer.Serialize(favorites);
+            HttpContext.Session.SetString("Favorites", favoritesJson);
         }
 
         public async Task<IActionResult> Index()
@@ -113,23 +441,40 @@ namespace Sinitsyna.Controllers
             {
                 ViewBag.UserName = user.First_name + " " + user.Last_name;
                 ViewBag.UserRole = user.Role?.Role_name;
+                var favoriteProductIds = await _context.Favorites
+               .Where(f => f.Id_user == user.Id_user)
+               .Select(f => f.Id_product)
+               .ToListAsync();
+                ViewBag.FavoriteProductIds = favoriteProductIds;
                 HttpContext.Session.Remove("ShoppingCart");
                 return View("Index");
             }
             return View(await _context.Products.ToListAsync());
         }
 
+
+
+        [HttpPost]
         public async Task<IActionResult> ExportSalesData(string format)
         {
             var salesAnalytics = await GetSalesAnalytics();
 
+            // Получение изображений графиков из формы
+            var totalSalesChartImage = Request.Form["totalSalesChartImage"];
+            var salesDistributionChartImage = Request.Form["salesDistributionChartImage"];
+
+            if (string.IsNullOrEmpty(totalSalesChartImage) || string.IsNullOrEmpty(salesDistributionChartImage))
+            {
+                return BadRequest("Не удалось получить изображения графиков.");
+            }
+
             if (format == "pdf")
             {
-                return GeneratePdf(salesAnalytics);
+                return GeneratePdf(salesAnalytics, totalSalesChartImage, salesDistributionChartImage);
             }
             else if (format == "excel")
             {
-                return GenerateExcel(salesAnalytics);
+                return GenerateExcel(salesAnalytics, totalSalesChartImage, salesDistributionChartImage);
             }
             else if (format == "csv")
             {
@@ -142,6 +487,7 @@ namespace Sinitsyna.Controllers
 
             return BadRequest("Неверный формат");
         }
+
 
         private async Task<IEnumerable<SalesAnalytics>> GetSalesAnalytics()
         {
@@ -164,7 +510,7 @@ namespace Sinitsyna.Controllers
             return salesData.ToList();
         }
 
-        private ActionResult GeneratePdf(IEnumerable<SalesAnalytics> salesData)
+        private ActionResult GeneratePdf(IEnumerable<SalesAnalytics> salesData, string totalSalesChartImage, string salesDistributionChartImage)
         {
             using (var stream = new MemoryStream())
             {
@@ -173,6 +519,20 @@ namespace Sinitsyna.Controllers
                 document.Open();
 
                 document.Add(new Paragraph("Аналитика по продажам"));
+
+                // Добавление изображений графиков
+                if (!string.IsNullOrEmpty(totalSalesChartImage))
+                {
+                    var imgTotalSales = iTextSharp.text.Image.GetInstance(totalSalesChartImage);
+                    document.Add(imgTotalSales);
+                }
+
+                if (!string.IsNullOrEmpty(salesDistributionChartImage))
+                {
+                    var imgSalesDistribution = iTextSharp.text.Image.GetInstance(salesDistributionChartImage);
+                    document.Add(imgSalesDistribution);
+                }
+
                 foreach (var sale in salesData)
                 {
                     document.Add(new Paragraph($"Заказ ID: {sale.OrderId}, Дата: {sale.OrderDate}, Товар: {sale.ProductName}, Количество: {sale.Quantity}, Цена: {sale.Price:C}, Общая сумма: {sale.TotalPrice:C}"));
@@ -183,7 +543,7 @@ namespace Sinitsyna.Controllers
             }
         }
 
-        private ActionResult GenerateExcel(IEnumerable<SalesAnalytics> salesData)
+        private ActionResult GenerateExcel(IEnumerable<SalesAnalytics> salesData, string totalSalesChartImage, string salesDistributionChartImage)
         {
             using (var package = new ExcelPackage())
             {
@@ -254,69 +614,7 @@ namespace Sinitsyna.Controllers
 
             return View(cart);
         }
-        [HttpGet]
-        public IActionResult AddToCart(int Id, int Quantity)
-        {
-            ShoppingCart cart;
-
-            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
-            {
-                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
-            }
-            else
-            {
-                cart = new ShoppingCart();
-            }
-
-            var product = _context.Products.Find(Id);
-
-            if (product != null)
-            {
-                if (Quantity <= product.Quantity) // Проверка доступного количества
-                {
-                    var existingCartLine = cart.CartLines.FirstOrDefault(cl => cl.Product.Id_product == Id);
-                    if (existingCartLine != null)
-                    {
-                        existingCartLine.Quantity += Quantity; // Увеличиваем количество
-                    }
-                    else
-                    {
-                        cart.CartLines.Add(new CartLine { Product = product, Quantity = Quantity });
-                    }
-
-                    HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
-                    return Ok(cart); // Возвращаем обновленную корзину
-                }
-                else
-                {
-                    return BadRequest("Недостаточно товара на складе.");
-                }
-            }
-
-            return NotFound("Товар не найден.");
-        }
-
-        [HttpPost]
-        public IActionResult UpdateCart(int Id, int Quantity)
-        {
-            ShoppingCart cart;
-
-            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
-            {
-                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
-
-                var existingCartLine = cart.CartLines.FirstOrDefault(cl => cl.Product.Id_product == Id);
-                if (existingCartLine != null)
-                {
-                    existingCartLine.Quantity = Quantity; // Обновляем количество
-                }
-
-                HttpContext.Session.SetString("ShoppingCart", System.Text.Json.JsonSerializer.Serialize(cart));
-                return Ok(cart); // Возвращаем обновленную корзину
-            }
-
-            return BadRequest("Корзина пуста.");
-        }
+        
         public IActionResult Checkout()
         {
             ShoppingCart cart;
@@ -349,7 +647,7 @@ namespace Sinitsyna.Controllers
 
                 foreach (var cartLine in cart.CartLines)
                 {
-                    var product = _context.Products.Include(p => p.Boutique).FirstOrDefault(p => p.Id_product == cartLine.Product.Id_product);
+                    var product = _context.Products.Include(p => p.Boutique).FirstOrDefault(p => p.Id_product == cartLine.ProductId);
                     if (product != null)
                     {
                         totalPrice += product.Price * cartLine.Quantity;
@@ -429,7 +727,7 @@ namespace Sinitsyna.Controllers
                 foreach (var cartLine in cart.CartLines)
                 {
                     // Освобождаем резервированное количество
-                    InventoryManager.ReleaseProduct(cartLine.Product.Id_product, cartLine.Quantity);
+                    InventoryManager.ReleaseProduct(cartLine.ProductId, cartLine.Quantity);
                 }
 
                 // Очищаем все товары из корзины
@@ -827,12 +1125,7 @@ namespace Sinitsyna.Controllers
 
                 if (user != null)
                 {
-                    HttpContext.Session.SetString("AuthUser", model.Login);
-                    await Authenticate(model.Login);
-
-                    TempData["FirstName"] = user.First_name;
-                    TempData["LastName"] = user.Last_name;
-                    TempData["Role"] = user.Role.Role_name;
+                    await Authenticate(user); // Передаем объект user в Authenticate
                     return RedirectToAction("Index", "Home");
                 }
 
@@ -842,31 +1135,29 @@ namespace Sinitsyna.Controllers
             return RedirectToAction("SignIn", "Home");
         }
 
-        private async Task Authenticate(string userName)
+
+        private async Task Authenticate(User user)
         {
             var claims = new List<Claim>
-            {
-                new Claim(ClaimsIdentity.DefaultNameClaimType, userName)
-            };
+    {
+        new Claim(ClaimTypes.Name, user.User_login),
+        new Claim(ClaimTypes.NameIdentifier, user.Id_user.ToString()), // Добавляем ID пользователя
+        new Claim(ClaimTypes.Role, user.Role.Role_name) // Добавляем роль
+    };
 
-            // claims.Add(new Claim(ClaimTypes.Role, TempData["Role"].ToString())); // Добавляем роль пользователя
+            ClaimsIdentity id = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme, ClaimTypes.Name, ClaimTypes.Role);
 
-            ClaimsIdentity id = new ClaimsIdentity(claims, "ApplicationCookie", ClaimsIdentity.DefaultNameClaimType,
-                ClaimsIdentity.DefaultRoleClaimType);
-
-            //// Сохраняем имя и роль в сессии
-            HttpContext.Session.SetString("FirstName", userName);
-            //// Убедитесь, что роль должным образом добавляется из подходящего места (например, из базы данных)
-            HttpContext.Session.SetString("Role", TempData["Role"]?.ToString() ?? "User");
             await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(id));
         }
+
         public async Task<IActionResult> Logout()
         {
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme); // Выход из аутентификации
-            HttpContext.Session.Remove("AuthUser");
+                                                                                               //HttpContext.Session.Remove("AuthUser"); // Больше не нужно
 
             return RedirectToAction("SignIn"); // Перенаправляем на страницу входа
         }
+
 
         public IActionResult SignUp()
         {
@@ -945,13 +1236,39 @@ namespace Sinitsyna.Controllers
 
         public async Task<IActionResult> Catalog()
         {
-            var products = await _context.Products.Include(p => p.ProductType)
-                                                  .Include(p => p.ProductMaterial)
-                                                  .Include(p => p.ProductImages)
-                                                  .ToListAsync();
+            var products = await _context.Products
+                .Include(p => p.ProductType)
+                .Include(p => p.ProductMaterial)
+                .Include(p => p.ProductImages)
+                .ToListAsync();
 
             var materials = await _context.ProductMaterials.ToListAsync();
             var types = await _context.ProductTypes.ToListAsync();
+
+            int userId = 0;
+            if (User.Identity.IsAuthenticated)
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out userId))
+                {
+                    // Пользователь аутентифицирован, ID пользователя получен
+                }
+                else
+                {
+                    // Обработка ошибки: не удалось получить ID пользователя
+                    // ...
+                }
+            }
+
+            // Получаем список ID избранных товаров для пользователя
+            List<int> favoriteProductIds = new List<int>();
+            if (userId > 0)
+            {
+                favoriteProductIds = await _context.Favorites
+                    .Where(f => f.Id_user == userId)
+                    .Select(f => f.Id_product)
+                    .ToListAsync();
+            }
 
             // Получаем корзину из сессии
             ShoppingCart cart = new ShoppingCart();
@@ -966,10 +1283,29 @@ namespace Sinitsyna.Controllers
                 Products = products,
                 Materials = materials,
                 Types = types,
-                ShoppingCart = cart // Передаем корзину
+                ShoppingCart = cart,
+                ReviewCounts = new Dictionary<int, int>(), // Initialize ReviewCounts
+                AverageRatings = new Dictionary<int, decimal>() // Initialize AverageRatings
             };
+            // Заполняем данные о количестве отзывов и среднем рейтинге
+            foreach (var product in model.Products)
+            {
+                // Количество отзывов
+                model.ReviewCounts[product.Id_product] = await _context.Reviews
+                    .CountAsync(r => r.Id_product == product.Id_product);
 
-            return View(model);
+                // Средний рейтинг
+                if (model.ReviewCounts[product.Id_product] > 0)
+                {
+                    model.AverageRatings[product.Id_product] = await _context.Reviews
+                        .Where(r => r.Id_product == product.Id_product)
+                        .AverageAsync(r => (decimal)r.Rating);
+                }
+            }
+            // Передаем список ID избранных товаров в представление через ViewBag
+            ViewBag.FavoriteProductIds = favoriteProductIds;
+
+            return View("Catalog", model);
         }
     }
 }

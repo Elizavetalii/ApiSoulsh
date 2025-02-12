@@ -2,15 +2,17 @@
 {
     public class CartLine
     {
-        public Product Product { get; set; }
+        public int ProductId { get; set; }
+        public string ProductName { get; set; }
+        public decimal Price { get; set; }
+        public string ImageUrl { get; set; }
         public int Quantity { get; set; }
         public int ReservedQuantity { get; set; }
-
-        // Новые свойства для хранения информации о бутике
         public string BoutiqueAddress { get; set; }
         public TimeSpan OpeningTime { get; set; }
         public TimeSpan ClosingTime { get; set; }
     }
+
     public class ShoppingCart
     {
         public ShoppingCart()
@@ -27,7 +29,7 @@
                 decimal price = 0;
                 foreach (var cartLine in CartLines)
                 {
-                    price += cartLine.Product.Price * cartLine.Quantity;
+                    price += cartLine.Price * cartLine.Quantity;
                 }
                 return price;
             }

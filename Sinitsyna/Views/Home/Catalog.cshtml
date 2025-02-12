@@ -1,12 +1,48 @@
 ﻿@model Sinitsyna.Models.CatalogViewModel
 
-
 @{
     ViewData["Title"] = "Каталог";
     List<string> list = new List<string>();
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha384-DyZvtl6Btbm5PKvly4LD68QdEGUNNB7e5r0M0OsB+Y8ixirA7mhwLEBGuF20JG7w" crossorigin="anonymous">
-    bool isFavorite = false;
 }
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+
+<style>
+    /* Стили для кнопок +/- */
+    .quantity-control button {
+        background-color: indianred;
+         /* Бежевый цвет фона */
+        color: #000; /* Черный цвет текста */
+        border: none;
+        padding: 5px 10px;
+        border-radius: 5px; /* Округлые края */
+        cursor: pointer;
+        transition: background-color 0.3s; /* Плавный переход цвета при наведении */
+    }
+
+        .quantity-control button:hover {
+            background-color: #e8e3d3; /* Более светлый бежевый цвет при наведении */
+        }
+
+    .card-image-container {
+        position: relative; /*  Относительное позиционирование для контейнера */
+    }
+
+    .btn-heart {
+        position: absolute; /* Абсолютное позиционирование для кнопки "сердечко" */
+        top: 10px; /*  Расстояние от верхнего края */
+        right: 10px; /* Расстояние от правого края */
+        background: none; /*  Удаляем фон кнопки */
+        border: none; /*  Удаляем рамку кнопки */
+        padding: 0; /*  Удаляем отступы кнопки */
+        cursor: pointer; /*  Изменяем курсор при наведении */
+        z-index: 10; /*  Чтобы кнопка была поверх изображения */
+    }
+
+</style>
+
 
 
     <form action="/search" method="get" id="search-form" style="display: flex; justify-content: center;">
@@ -45,33 +81,75 @@
 
     <div class="col-9">
         <div class="row">
-            @foreach (var item in Model.Products) // Используем Model.Products для отображения товаров
+            @foreach (var item in Model.Products)
             {
+                bool isFavorite = false;
+                if (ViewBag.FavoriteProductIds != null && ((List<int>)ViewBag.FavoriteProductIds).Contains(item.Id_product))
+                {
+                    isFavorite = true;
+                }
+
                 <div class="col-md-4">
-                    <div class="card">
-                        <img src="@item.ProductImages?.FirstOrDefault()?.Url_image" class="card-img-top" alt="@item.Product_name" />
-                        <div class="card-body">
-                            <h5 class="card-title">@item.Product_name</h5>
-                            <p class="card-text">Описание: @item.Product_description</p>
-                            <p class="card-text"><strong>Цена:</strong> @item.Price.ToString("C")</p>
-                            <p class="card-text"><strong>Доступное количество:</strong> @item.Quantity</p>
+                    <a href="@Url.Action("Details", "Home", new { id = item.Id_product })" style="text-decoration: none; color: inherit;">
+                        <div class="card">
+                            <div class="card-image-container">
+                                <img src="@item.ProductImages?.FirstOrDefault()?.Url_image" class="card-img-top" alt="@item.Product_name" />
+                                <button class="btn btn-heart" data-product-id="@item.Id_product" data-is-favorite="@isFavorite.ToString().ToLower()">
+                                    @if (isFavorite)
+                                    {
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="red">
+                                            <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-heart">
+                                            <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                                        </svg>
+                                    }
+                                </button>
+                            </div>
+                            
+                            <div class="card-body">
+                                <h5 class="card-title">@item.Product_name</h5>
+                                <p class="card-text">Описание: @item.Product_description</p>
+                                <p class="card-text"><strong>Цена:</strong> @item.Price.ToString("C")</p>
+                                <p class="card-text"><strong>Доступное количество:</strong> @item.Quantity</p>
 
-                            <!-- Кнопка "Добавить в заказ" -->
-                            <a href="#" title="Добавить товар в заказ" class="btn-beige add-to-cart-btn" data-product-id="@item.Id_product"
-                               data-in-cart="@((Model.ShoppingCart.CartLines.Any(cl => cl.Product.Id_product == item.Id_product)) ? "true" : "false")">
-                                @(Model.ShoppingCart.CartLines.Any(cl => cl.Product.Id_product == item.Id_product) ? "Товар в вашем заказе" : "Добавить в заказ")
-                            </a>
+                                <div class="add-to-cart-section">
+                                    <div class="d-flex align-items-center">
+                                        <a href="#" title="Добавить товар в заказ" class="btn-beige add-to-cart-btn" data-product-id="@item.Id_product"
+                                           data-in-cart="@((Model.ShoppingCart.CartLines.Any(cl => cl.ProductId == item.Id_product)) ? "true" : "false")">
+                                            @(Model.ShoppingCart.CartLines.Any(cl => cl.ProductId == item.Id_product) ? "Товар в вашем заказе" : "Добавить в заказ")
+                                        </a>
 
-                            <!-- Элементы управления количеством (по умолчанию скрыты) -->
-                            <div class="quantity-control" style="display: @(Model.ShoppingCart.CartLines.Any(cl => cl.Product.Id_product == item.Id_product) ? "flex" : "none")">
-                                <button class="btn-decrease" data-product-id="@item.Id_product">-</button>
-                                <span class="quantity" id="quantity-@item.Id_product" style="color: white;">
-                                    @(Model.ShoppingCart.CartLines.FirstOrDefault(cl => cl.Product.Id_product == item.Id_product)?.Quantity ?? 1)
-                                </span>                             
-                                <button class="btn-increase" data-product-id="@item.Id_product">+</button>
+                                        <div class="quantity-control" style="display: @(Model.ShoppingCart.CartLines.Any(cl => cl.ProductId == item.Id_product) ? "flex" : "none"); margin-left: 10px;">
+                                            <button class="quantity-control button btn-decrease" data-product-id="@item.Id_product">-</button>
+                                            <span class="quantity" id="quantity-@item.Id_product" style="color: white;">
+                                                @(Model.ShoppingCart.CartLines.FirstOrDefault(cl => cl.ProductId == item.Id_product)?.Quantity ?? 1)
+                                            </span>
+                                            <button class="quantity-control button btn-increase" data-product-id="@item.Id_product">+</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @if (Model.AverageRatings.ContainsKey(item.Id_product))
+                                {
+                                    decimal averageRating = Model.AverageRatings[item.Id_product];
+                                    int reviewCount = Model.ReviewCounts[item.Id_product];
+
+                                    <p class="card-text">
+                                        Рейтинг: @averageRating.ToString("0.00") / 5 (@reviewCount отзывов)
+                                    </p>
+                                }
+                                else
+                                {
+                                    <p class="card-text">Пока нет оценок</p>
+                                }
+
                             </div>
                         </div>
-                    </div>
+                    </a>
                 </div>
             }
         </div>
@@ -83,22 +161,18 @@
 
         addToCartButtons.forEach(button => {
             button.addEventListener('click', function (event) {
-                event.preventDefault(); // Остановить переход по ссылке
+                event.preventDefault();
                 const productId = this.getAttribute('data-product-id');
                 const quantityElement = document.getElementById(`quantity-${productId}`);
-                const quantity = parseInt(quantityElement.textContent); // Получаем текущее количество
-
-                // Проверяем, добавлен ли товар в корзину
+                const quantity = parseInt(quantityElement.textContent);
                 if (this.getAttribute('data-in-cart') === 'false') {
                     fetch(`/Home/AddToCart?Id=${productId}&Quantity=${quantity}`)
                         .then(response => {
                             if (response.ok) {
-                                this.textContent = 'Товар в вашем заказе'; // Меняем текст кнопки
-                                this.setAttribute('data-in-cart', 'true'); // Обновляем состояние кнопки
-
-                                // Показать элементы управления количеством
-                                const quantityControl = this.nextElementSibling; // Получаем элементы управления
-                                quantityControl.style.display = 'flex'; // Или 'block', в зависимости от вашего CSS
+                                this.textContent = 'Товар в вашем заказе';
+                                this.setAttribute('data-in-cart', 'true');
+                                const quantityControl = this.nextElementSibling;
+                                quantityControl.style.display = 'flex';
                             } else {
                                 console.error('Ошибка при добавлении товара в корзину');
                             }
@@ -120,7 +194,7 @@
                 if (quantity > 1) {
                     quantity--;
                     quantityElement.textContent = quantity;
-                    updateCatalogAndCart(productId, quantity); // Обновляем количество и в каталоге, и в корзине
+                    updateCatalogAndCart(productId, quantity);
                 }
             });
         });
@@ -130,14 +204,11 @@
                 const productId = this.getAttribute('data-product-id');
                 const quantityElement = document.getElementById(`quantity-${productId}`);
                 let quantity = parseInt(quantityElement.textContent);
-
-                // Получаем доступное количество товара из базы данных или другого источника
                 const availableQuantity = parseInt(this.closest('.card-body').querySelector('.card-text:nth-of-type(3)').textContent.split(': ')[1]);
-
                 if (quantity < availableQuantity) {
                     quantity++;
                     quantityElement.textContent = quantity;
-                    updateCatalogAndCart(productId, quantity); // Обновляем количество и в каталоге, и в корзине
+                    updateCatalogAndCart(productId, quantity);
                 } else {
                     alert('Достигнуто максимальное количество для этого товара.');
                 }
@@ -145,45 +216,63 @@
         });
 
         function updateCatalogAndCart(productId, quantity) {
-            // Обновляем количество товара на сервере и синхронизируем с каталогом
             fetch(`/Home/UpdateCart?Id=${productId}&Quantity=${quantity}`, { method: 'POST' })
                 .then(response => {
                     if (!response.ok) {
                         console.error('Ошибка при обновлении количества товара в корзине');
                     } else {
-                        syncCatalogWithCart(productId, quantity); // Синхронизируем каталог с корзиной
+                        syncCatalogWithCart(productId, quantity); 
                     }
                 })
                 .catch(error => console.error('Ошибка:', error));
         }
 
         function syncCatalogWithCart(productId, newQuantity) {
-            // Находим элемент в каталоге и обновляем его количество
             const catalogQuantityElement = document.getElementById(`quantity-${productId}`);
             if (catalogQuantityElement) {
-                catalogQuantityElement.textContent = newQuantity; // Обновляем количество в каталоге
+                catalogQuantityElement.textContent = newQuantity;
             }
         }
     });
-        document.querySelectorAll('.btn-heart').forEach(button => {
-            button.addEventListener('click', function () {
-                const isFavorite = this.getAttribute('data-is-favorite') === 'true';
-                this.setAttribute('data-is-favorite', !isFavorite);
+    document.querySelectorAll('.btn-heart').forEach(button => {
+        button.addEventListener('click', function () {
+            const productId = this.getAttribute('data-product-id');
+            const isFavorite = this.getAttribute('data-is-favorite') === 'true';
+            const buttonElement = this; // Сохраняем ссылку на кнопку
 
-                const heartIcon = this.querySelector('svg');
-                if (isFavorite) {
+            let url = isFavorite ? '/Home/RemoveFavorite' : '/Home/AddFavorite';
 
-                    heartIcon.outerHTML = `<!-- Заменяем на пустое сердце -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-heart">
-                          <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
-                        </svg>`;
-                } else {
-                    heartIcon.outerHTML = `<!-- Заменяем на закрашенное сердце -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="red">
-                          <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
-                        </svg>`;
+            $.ajax({
+                url: url,
+                type: 'POST',
+                data: { productId: productId },
+                success: function (response) {
+                    if (response.success) {
+                        // Меняем состояние кнопки
+                        buttonElement.setAttribute('data-is-favorite', (!isFavorite).toString());
+
+                        // Обновляем иконку
+                        if (isFavorite) {
+                            buttonElement.innerHTML = `
+                                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-heart">
+                                  <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                                </svg>`;
+                        } else {
+                            buttonElement.innerHTML = `
+                                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="24" viewBox="0 0 24 24" fill="red">
+                                  <path d="M20.84 4.61A5.92 5.92 0 0012 8.47 5.92 5.92 0 003.16 4.61 5.89 5.89 0 000 10.77c0 5.39 9.99 11.43 12 11.83 2.03-.4 12-6.44 12-11.83a5.89 5.89 0 00-3.16-6.16z"></path>
+                                </svg>`;
+                        }
+                    } else {
+                        alert(response.message);
+                    }
+                },
+                error: function () {
+                    alert("Произошла ошибка при добавлении/удалении товара из избранного.");
                 }
             });
         });
+    });
+
 </script>
 

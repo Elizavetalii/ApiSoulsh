@@ -1,0 +1,10 @@
+﻿@model decimal
+
+@if (Model > 0)
+{
+    <p>Рейтинг: @Model.ToString("0.00") / 5</p>
+}
+else
+{
+    <p>Пока нет оценок.</p>
+}

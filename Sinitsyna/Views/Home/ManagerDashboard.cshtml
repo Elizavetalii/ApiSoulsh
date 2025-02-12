@@ -1,4 +1,5 @@
-﻿ @model Sinitsyna.Models.ManagerViewModel
+﻿@using Newtonsoft.Json
+ @model Sinitsyna.Models.ManagerViewModel
 
 @{
     ViewData["Title"] = "Панель Менеджера";
@@ -27,18 +28,34 @@
 <p>Ваша должность: @ViewBag.UserRole</p>
 
 
-
 <h3>Экспорт аналитики по продажам:</h3>
-<select id="exportFormat">
-    <option value="pdf">PDF</option>
-    <option value="csv">CSV</option>
-    <option value="json">JSON</option>
-</select>
-<button id="exportButton" style="cursor:pointer;" class="button">Экспортировать</button>
+<button id="downloadButton" style="cursor:pointer;" class="button">Экспортировать в PDF</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
-    document.getElementById('exportButton').addEventListener('click', function() {
-        var format = document.getElementById('exportFormat').value;
-        window.location.href = '@Url.Action("ExportSalesData")?format=' + format;
+    document.getElementById('downloadButton').addEventListener('click', function() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        function addChartToPdf(chartId, x, y, width, height) {
+            return new Promise((resolve) => {
+                const chart = document.getElementById(chartId);
+                const imgData = chart.toDataURL("image/png");
+                doc.addImage(imgData, 'PNG', x, y, width, height);
+                resolve();
+            });
+        }
+
+        // Добавляем графики в PDF
+        Promise.all([
+            addChartToPdf('totalSalesChart', 10, 10, 190, 90), // Параметры X, Y и размеры
+            doc.addPage(), // Переход на новую страницу
+            addChartToPdf('salesDistributionChart', 10, 10, 190, 190), // Параметры X, Y и размеры
+        ]).then(() => {
+            const todayDate = new Date().toLocaleDateString(); // Получаем текущую дату
+            doc.save(`sales_report_${todayDate}.pdf`); // Сохраняем файл с текущей датой
+        });
     });
 </script>
 
@@ -62,7 +79,7 @@
     </tbody>
 </table>
 
-<h3>Диаграммы продаж</h3>
+<h1>Диаграммы продаж</h1>
 <div>
     <h2>Общее количество продаж</h2>
     <canvas id="totalSalesChart"></canvas>

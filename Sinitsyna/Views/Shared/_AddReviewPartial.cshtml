@@ -1,0 +1,40 @@
+﻿@model Sinitsyna.Models.AddReviewViewModel
+@using System.Security.Claims
+
+@if (User.Identity.IsAuthenticated)
+{
+    // Получаем ID пользователя из Claims
+    var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+    int userId = 0;
+    if (userIdClaim != null && int.TryParse(userIdClaim.Value, out userId))
+    {
+        // Пользователь аутентифицирован, отображаем форму отзыва
+        <form method="post" asp-action="AddReview" asp-controller="Home">
+            <input type="hidden" asp-for="ProductId" />
+
+            <label asp-for="Rating">Рейтинг (1-5):</label>
+            <select asp-for="Rating" class="form-control">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+            </select>
+            <span asp-validation-for="Rating" class="text-danger"></span>
+
+            <label asp-for="Text">Ваш отзыв:</label>
+            <textarea asp-for="Text" class="form-control"></textarea>
+            <span asp-validation-for="Text" class="text-danger"></span>
+
+            <button type="submit"  class=" btn-beige add-to-cart-btn" >Добавить отзыв</button>
+        </form>
+    }
+    else
+    {
+        <p>Не удалось получить ID пользователя.</p>
+    }
+}
+else
+{
+    <p>Для добавления отзыва необходимо <a asp-area="" asp-controller="Home" asp-action="SignIn">войти</a> или <a asp-area="" asp-controller="Home" asp-action="SignUp">зарегистрироваться</a>.</p>
+}

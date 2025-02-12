@@ -1,0 +1,53 @@
+﻿@model List<Sinitsyna.Models.FavoriteViewModel>
+
+@{
+    ViewData["Title"] = "Любимое";
+}
+
+<h1>Ваши любимые украшения</h1>
+
+<div class="row">
+    @foreach (var item in Model)
+    {
+        <div class="col-md-4">
+            <div class="card">
+                <img src="@item.Url_image" class="card-img-top" alt="@item.Product_name" />
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <a href="@Url.Action("Details", "Home", new { id = item.Id_product })" style="text-decoration: none; color: inherit;">
+                            @item.Product_name
+                        </a>
+                    </h5>
+                    <p class="card-text">Цена: @item.Price.ToString("C")</p>
+                    <button class="btn btn-danger btn-remove-favorite" data-product-id="@item.Id_product">Удалить из избранного</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@section scripts {
+    <script>
+        $(document).ready(function () {
+            $('.btn-remove-favorite').click(function () {
+                var productId = $(this).data('product-id');
+                $.ajax({
+                    url: '/Home/RemoveFavorite',
+                    type: 'POST',
+                    data: { productId: productId },
+                    success: function (response) {
+                        if (response.success) {
+                            alert(response.message);
+                            location.reload(); // Обновляем страницу
+                        } else {
+                            alert(response.message);
+                        }
+                    },
+                    error: function () {
+                        alert("Произошла ошибка при удалении товара из избранного.");
+                    }
+                });
+            });
+        });
+    </script>
+}
