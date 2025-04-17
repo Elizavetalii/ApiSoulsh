@@ -11,10 +11,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha384-DyZvtl6Btbm5PKvly4LD68QdEGUNNB7e5r0M0OsB+Y8ixirA7mhwLEBGuF20JG7w" crossorigin="anonymous">
     <title>@ViewData["Title"] - SOULSHINE</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
-   @*  <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" /> *@
+    @*  <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" /> *@
     <link rel="stylesheet" href="~/css/@(theme == "dark" ? "dark-theme.css" : "light-theme.css")">
-   
-   <link rel="stylesheet" href="~/Sinitsyna.styles.css" asp-append-version="true" />
+
+    <link rel="stylesheet" href="~/Sinitsyna.styles.css" asp-append-version="true" />
     <style>
         body {
             transition: background-color 0.3s, color 0.3s;
@@ -22,87 +22,13 @@
     </style>
 </head>
 <body>
-    <header style="background-color: #333; color: #fff;">
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
-            <div class="container-fluid">
-                <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">SOULSHINE</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1">
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Главная</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Catalog">Каталог</a>
-                        </li>
-
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Favorites">Любимое</a>
-                        </li>
-
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="ShoppingCart">Мой Заказ</a>
-                        </li>
-                    </ul>
-                </div>
-                 
-
-
-
-                <div>
-                    <form id="themeForm" asp-action="ToggleTheme" method="post">
-                        <button type="submit" class="btn-sun" id="toggle-button">
-                            <!-- Иконка будет обновляться через JavaScript -->
-                            <span id="theme-icon">
-                                @if (ViewBag.Theme == "dark")
-                                {
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="black" viewBox="0 0 24 24" width="50" height="50">
-                                    <circle cx="12" cy="12" r="5" />
-                                    <line x1="12" y1="1" x2="12" y2="4" />
-                                    <line x1="12" y1="20" x2="12" y2="23" />
-                                    <line x1="1" y1="12" x2="4" y2="12" />
-                                    <line x1="20" y1="12" x2="23" y2="12" />
-                                    <line x1="4.22" y1="4.22" x2="6.34" y2="6.34" />
-                                    <line x1="17.66" y1="17.66" x2="19.78" y2="19.78" />
-                                    <line x1="4.22" y1="19.78" x2="6.34" y2="17.66" />
-                                    <line x1="17.66" y1="6.34" x2="19.78" y2="4.22" />
-                                </svg>
-                            }
-                            else
-                            {
-                                <svg xmlns="http://www.w3.org/2000/svg" version="1.0" width="50" height="50" viewBox="0 0 512.000000 512.000000" preserveAspectRatio="xMidYMid meet">
-                                    <g transform="translate(0.000000,512.000000) scale(0.1,-0.1)" fill="#000000" stroke="none">
-                                        <path d="M2370 5114 c-19 -2 -78 -9 -130 -15 -548 -62 -1082 -324 -1488 -729 -405 -404 -652 -907 -733 -1490 -20 -143 -18 -527 4 -670 90 -586 331 -1065 738 -1467 63 -62 155 -145 204 -185 641 -512 1494 -684 2290 -461 428 119 805 343 1122 664 207 209 342 398 472 660 192 385 282 789 269 1211 -4 129 -9 163 -25 195 -38 75 -147 104 -212 55 -14 -10 -55 -61 -91 -113 -86 -125 -279 -318 -395 -395 -162 -107 -330 -178 -525 -220 -121 -26 -448 -27 -570 -1 -291 62 -534 193 -740 397 -232 230 -365 491 -417 814 -23 148 -14 404 21 549 45 192 124 363 243 529 74 103 245 267 362 348 52 36 103 77 113 91 49 66 20 174 -56 212 -33 18 -62 20 -230 23 -105 1 -207 0 -226 -2z m-115 -381 c-199 -232 -336 -512 -397 -814 -20 -100 -23 -142 -23 -344 1 -201 4 -243 23 -335 103 -477 375 -874 774 -1134 171 -111 390 -201 608 -248 92 -19 134 -22 335 -23 202 0 244 3 344 23 299 61 585 200 813 396 l77 66 -5 -37 c-120 -876 -708 -1593 -1532 -1867 -706 -234 -1481 -106 -2075 343 -867 655 -1142 1839 -655 2815 334 668 992 1135 1733 1229 17 2 34 5 38 6 5 0 -21 -34 -58 -76z" />
-                                    </g>
-                                </svg>                            
-                            }
-                                
-                            </span>
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </nav>
-    </header>
+    @await Html.PartialAsync("_Header")
     <div class="container">
         <main role="main" class="pb-3">
             @RenderBody()
         </main>
     </div>
-
-
-    <footer  style="background-color: #333; color: #fff; padding: 20px;">
-        <p> &copy; 2024 SOULSHINE. Все права защищены.</p>
-        <p>Свяжитесь с нами: <a href="mailto:info@soulshine.com" style="color: #fefbd8;">info@soulshine.com</a></p>
-        <div>
-        <a href="#" style="color: #fefbd8; margin: 0 10px;">Facebook</a>
-        <a href="#" style="color: #fefbd8; margin: 0 10px;">Instagram</a>
-        <a href="#" style="color: #fefbd8; margin: 0 10px;">Twitter</a>
-        </div>
-    </footer> 
+    @await Html.PartialAsync("_Footer")
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
@@ -179,5 +105,3 @@
 
 </body>
 </html>
-
-

@@ -31,6 +31,7 @@ namespace Sinitsyna.Controllers
             _context = context;
         }
 
+       
         [Authorize] // Требуется аутентификация пользователя
         [HttpPost]
         public async Task<IActionResult> AddFavorite(int productId)

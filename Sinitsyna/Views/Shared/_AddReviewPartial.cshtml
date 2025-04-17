@@ -1,37 +1,89 @@
 ﻿@model Sinitsyna.Models.AddReviewViewModel
 @using System.Security.Claims
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
+      crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+<style>
+    /* Стили для звездочек */
+    .rating {
+        display: inline-block;
+    }
+
+        .rating input {
+            display: none;
+        }
+
+        .rating label {
+            float: right;
+            color: #ccc;
+            font-size: 30px;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+        }
+
+            .rating label:before {
+                margin: 5px;
+                content: "\f005"; /* Иконка звезды Font Awesome */
+                font-family: FontAwesome;
+                display: inline-block;
+            }
+
+        .rating input:checked ~ label,
+        .rating:not(:checked) > label:hover,
+        .rating:not(:checked) > label:hover ~ label {
+            color: gold;
+        }
+
+            .rating input:checked + label:hover,
+            .rating input:checked ~ label:hover,
+            .rating label:hover ~ .rating input:checked ~ label,
+            .rating input:checked ~ label:hover ~ label {
+                color: #FFED85;
+            }
+</style>
+
 @if (User.Identity.IsAuthenticated)
 {
-    // Получаем ID пользователя из Claims
     var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
     int userId = 0;
     if (userIdClaim != null && int.TryParse(userIdClaim.Value, out userId))
     {
-        // Пользователь аутентифицирован, отображаем форму отзыва
-        <form method="post" asp-action="AddReview" asp-controller="Home">
+        <form id="addReviewForm" method="post" asp-action="AddReview" asp-controller="Home">
             <input type="hidden" asp-for="ProductId" />
+            <div>
+                <label asp-for="Text">Ваша оценка:</label>
+            </div>
+            <div class="rating">
+                <input type="radio" id="star5" name="Rating" value="5" />
+                <label for="star5" title="5 stars"></label>
 
-            <label asp-for="Rating">Рейтинг (1-5):</label>
-            <select asp-for="Rating" class="form-control">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-            </select>
+                <input type="radio" id="star4" name="Rating" value="4" />
+                <label for="star4" title="4 stars"></label>
+
+                <input type="radio" id="star3" name="Rating" value="3" />
+                <label for="star3" title="3 stars"></label>
+
+                <input type="radio" id="star2" name="Rating" value="2" />
+                <label for="star2" title="2 stars"></label>
+
+                <input type="radio" id="star1" name="Rating" value="1" />
+                <label for="star1" title="1 star"></label>
+            </div>
             <span asp-validation-for="Rating" class="text-danger"></span>
-
-            <label asp-for="Text">Ваш отзыв:</label>
+            <div>
+            <label asp-for="Text">Ваш текст отзыва:</label>
             <textarea asp-for="Text" class="form-control"></textarea>
             <span asp-validation-for="Text" class="text-danger"></span>
-
-            <button type="submit"  class=" btn-beige add-to-cart-btn" >Добавить отзыв</button>
+            </div>
+            <button type="submit" class="btn-beige add-to-cart-btn">Добавить отзыв</button>
         </form>
     }
     else
     {
-        <p>Не удалось получить ID пользователя.</p>
+        <p>Для добавления отзыва необходимо <a asp-area="" asp-controller="Home" asp-action="SignIn">войти</a> или <a asp-area="" asp-controller="Home" asp-action="SignUp">зарегистрироваться</a>.</p>
     }
 }
 else
