@@ -24,159 +24,144 @@ namespace Sinitsyna.Controllers
 {
     public class HomeController : Controller
     {
-        private readonly AppDbContext _context;
+        private readonly HttpClient _httpClient;
 
-        public HomeController(AppDbContext context)
+        public HomeController()
         {
-            _context = context;
+            _httpClient = new HttpClient
+            {
+                BaseAddress = new Uri("https://localhost:7147/api/") // адрес вашего API
+            };
         }
-
-       
-        [Authorize] // Требуется аутентификация пользователя
+        [Authorize]
         [HttpPost]
         public async Task<IActionResult> AddFavorite(int productId)
         {
-            // Получаем ID пользователя из Claims
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
-            {
                 return BadRequest("Не удалось получить ID пользователя.");
-            }
 
-            // Проверяем, не добавлен ли уже этот товар в избранное
-            if (await _context.Favorites.AnyAsync(f => f.Id_user == userId && f.Id_product == productId))
+            var favorite = new { Id_user = userId, Id_product = productId };
+            var response = await _httpClient.PostAsJsonAsync("favorites/add", favorite);
+
+            if (response.IsSuccessStatusCode)
             {
-                return Ok(new { success = false, message = "Товар уже в избранном." });
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse>();
+                return Ok(result);
             }
-
-            // Добавляем товар в избранное
-            var favorite = new Favorite
+            else
             {
-                Id_user = userId,
-                Id_product = productId
-            };
-            _context.Favorites.Add(favorite);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { success = true, message = "Товар добавлен в избранное." });
+                var error = await response.Content.ReadAsStringAsync();
+                return BadRequest(error);
+            }
         }
 
-        [Authorize] // Требуется аутентификация пользователя
+
+        [Authorize]
         [HttpPost]
         public async Task<IActionResult> RemoveFavorite(int productId)
         {
-            // Получаем ID пользователя из Claims
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
-            {
                 return BadRequest("Не удалось получить ID пользователя.");
-            }
 
-            // Удаляем товар из избранного
-            var favorite = await _context.Favorites
-                .FirstOrDefaultAsync(f => f.Id_user == userId && f.Id_product == productId);
-
-            if (favorite == null)
+            var requestData = new
             {
-                return Ok(new { success = false, message = "Товар не найден в избранном." });
+                UserId = userId,
+                ProductId = productId
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("favorites/remove", requestData);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse>();
+                return Ok(result);
             }
-
-            _context.Favorites.Remove(favorite);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { success = true, message = "Товар удален из избранного." });
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return BadRequest(error);
+            }
         }
 
-        [Authorize] // Требуется аутентификация пользователя
+        [Authorize]
         public async Task<IActionResult> Favorites()
         {
-            // Получаем ID пользователя из Claims
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
-            {
                 return BadRequest("Не удалось получить ID пользователя.");
+
+            var response = await _httpClient.GetAsync($"favorites/{userId}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var favoriteProducts = await response.Content.ReadFromJsonAsync<List<FavoriteViewModel>>();
+                return View(favoriteProducts);
             }
-
-            // Получаем список избранных товаров для пользователя
-            var favorites = await _context.Favorites
-                .Where(f => f.Id_user == userId)
-                .Select(f => f.Id_product)
-                .ToListAsync();
-
-            // Получаем информацию о товарах из базы данных
-            var favoriteProducts = await _context.Products
-                .Where(p => favorites.Contains(p.Id_product))
-                .Select(p => new FavoriteViewModel
-                {
-                    Id_product = p.Id_product,
-                    Product_name = p.Product_name,
-                    Price = p.Price,
-                    Url_image = p.ProductImages.FirstOrDefault().Url_image // Получаем URL первого изображения
-                })
-                .ToListAsync();
-
-            return View(favoriteProducts);
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return BadRequest(error);
+            }
         }
 
         public async Task<IActionResult> Details(int id)
         {
-            var product = await _context.Products
-                .Include(p => p.ProductImages)
-                .FirstOrDefaultAsync(p => p.Id_product == id);
-
-            if (product == null)
-            {
+            // Получаем продукт с изображениями
+            var productResponse = await _httpClient.GetAsync($"products/{id}");
+            if (!productResponse.IsSuccessStatusCode)
                 return NotFound();
-            }
+
+            var product = await productResponse.Content.ReadFromJsonAsync<Product>();
 
             int userId = 0;
             if (User.Identity.IsAuthenticated)
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out userId)){}else{}
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int parsedUserId))
+                    userId = parsedUserId;
             }
 
             bool isFavorite = false;
             if (userId > 0)
             {
-                isFavorite = await _context.Favorites.AnyAsync(f => f.Id_user == userId && f.Id_product == id);
+                // Проверяем, есть ли товар в избранном пользователя
+                var favResponse = await _httpClient.GetAsync($"favorites/user/{userId}");
+                if (favResponse.IsSuccessStatusCode)
+                {
+                    var favorites = await favResponse.Content.ReadFromJsonAsync<List<Favorite>>();
+                    isFavorite = favorites.Any(f => f.Id_product == id);
+                }
             }
 
+            // Работа с корзиной из сессии (оставляем без изменений)
             ShoppingCart cart = new ShoppingCart();
-
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
                 cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
             }
-            else
-            {
-                cart = new ShoppingCart();
-            }
-            // Определяем, находится ли товар в корзине
             ViewBag.IsInCart = cart.CartLines.Any(cl => cl.ProductId == id);
+            ViewBag.QuantityInCart = cart.CartLines.FirstOrDefault(cl => cl.ProductId == id)?.Quantity ?? 0;
 
-            // Если товар в корзине, передаем количество
-            ViewBag.QuantityInCart = cart.CartLines.FirstOrDefault(cl => cl.ProductId == id)?.Quantity;
+            // Получаем отзывы по продукту из API
+            var reviewsResponse = await _httpClient.GetAsync($"reviews/product/{id}");
+            List<Review> reviews = new List<Review>();
+            if (reviewsResponse.IsSuccessStatusCode)
+            {
+                reviews = await reviewsResponse.Content.ReadFromJsonAsync<List<Review>>();
+            }
 
-            var reviews = await _context.Reviews
-                .Where(r => r.Id_product == id)
-                .Include(r => r.User) // Include User info for displaying the username
-                .ToListAsync();
-
+            // Преобразуем отзывы в ViewModel
             var reviewViewModels = reviews.Select(r => new ReviewViewModel
             {
-                UserName = r.User.First_name,
+                UserName = r.User.First_name, // предполагается, что User загружен в API
                 Rating = r.Rating,
                 Text = r.Text_reviews,
                 CreatedDate = r.Created_date
             }).ToList();
 
-            // Calculate Average Rating
-            decimal averageRating = 0;
-            if (reviewViewModels.Any())
-            {
-                averageRating = (decimal)reviewViewModels.Average(x => x.Rating);
-            }
+            decimal averageRating = reviewViewModels.Any() ? (decimal)reviewViewModels.Average(x => x.Rating) : 0;
 
             var detailsViewModel = new DetailsViewModel
             {
@@ -184,8 +169,8 @@ namespace Sinitsyna.Controllers
                 Reviews = reviewViewModels,
                 AddReview = new AddReviewViewModel { ProductId = id },
                 AverageRating = averageRating,
-                ReviewsCount = reviews.Count(),// Pass the average rating to the view model
-                IsFavorite = isFavorite // передаем состояние избранного в ViewModel
+                ReviewsCount = reviewViewModels.Count,
+                IsFavorite = isFavorite
             };
 
             return View(detailsViewModel);
@@ -203,41 +188,56 @@ namespace Sinitsyna.Controllers
                 return System.Text.Json.JsonSerializer.Deserialize<List<int>>(favoritesString);
             }
         }
-    
         [HttpPost]
-        public IActionResult AddReview(AddReviewViewModel model)
+        public async Task<IActionResult> AddReview(AddReviewViewModel model)
         {
+            // Проверяем, что пользователь аутентифицирован
             if (!User.Identity.IsAuthenticated)
             {
                 return RedirectToAction("SignIn", "Home");
             }
 
+            // Получаем ID пользователя из Claims
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
             {
                 return BadRequest("Не удалось получить ID пользователя.");
             }
 
-            if (ModelState.IsValid)
+            // Проверяем валидность модели
+            if (!ModelState.IsValid)
             {
-                var review = new Review
-                {
-                    Id_user = userId,
-                    Id_product = model.ProductId,
-                    Rating = model.Rating,
-                    Text_reviews = model.Text,
-                    Created_date = DateTime.Now
-                };
-
-                _context.Reviews.Add(review);
-                _context.SaveChanges();
-
+                // Можно передать ошибки в TempData/ViewData, если нужно
+                TempData["Error"] = "Некорректные данные для отзыва.";
                 return RedirectToAction("Details", new { id = model.ProductId });
             }
 
-            // Если модель недействительна, возвращаемся к представлению Details
-            return RedirectToAction("Details", new { id = model.ProductId });
+            // Создаём объект Review с именами свойств, соответствующими JSON (camelCase)
+            var review = new
+            {
+                idUser = userId,
+                idProduct = model.ProductId,
+                rating = model.Rating,
+                textReviews = model.Text,
+                createdDate = DateTime.Now
+            };
+
+            // Отправляем POST-запрос на API
+            var response = await _httpClient.PostAsJsonAsync("reviews", review);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return RedirectToAction("Details", new { id = model.ProductId });
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                TempData["Error"] = $"Ошибка при добавлении отзыва: {errorContent}";
+                return RedirectToAction("Details", new { id = model.ProductId });
+            }
         }
+
+
 
         [HttpGet]
         public async Task<IActionResult> AddToCart(int Id, int Quantity)
@@ -253,13 +253,13 @@ namespace Sinitsyna.Controllers
                 cart = new ShoppingCart();
             }
 
-            var product = await _context.Products
-                .FirstOrDefaultAsync(p => p.Id_product == Id);
-
-            if (product == null)
+            var productResponse = await _httpClient.GetAsync($"products/{Id}");
+            if (!productResponse.IsSuccessStatusCode)
             {
                 return NotFound("Товар не найден.");
             }
+
+            var product = await productResponse.Content.ReadFromJsonAsync<Product>();
 
             if (Quantity <= product.Quantity) // Проверка доступного количества
             {
@@ -270,19 +270,8 @@ namespace Sinitsyna.Controllers
                 }
                 else
                 {
-                    // Получаем URL первого изображения
-                    string imageUrl = null;
-                    var productImage = await _context.ProductImages
-                        .FirstOrDefaultAsync(pi => pi.Id_product == Id);
-
-                    if (productImage != null)
-                    {
-                        imageUrl = productImage.Url_image;
-                    }
-                    else
-                    {
-                        imageUrl = "/media/default_image.png"; // URL изображения по умолчанию
-                    }
+                    // Получаем URL первого изображения из продукта
+                    string imageUrl = product.ProductImages?.FirstOrDefault()?.Url_image ?? "/media/default_image.png";
 
                     cart.CartLines.Add(new CartLine
                     {
@@ -302,6 +291,7 @@ namespace Sinitsyna.Controllers
                 return BadRequest("Недостаточно товара на складе.");
             }
         }
+
 
         [HttpPost]
         public IActionResult UpdateCart(int Id, int Quantity)
@@ -324,7 +314,7 @@ namespace Sinitsyna.Controllers
 
             return BadRequest("Корзина пуста.");
         }
-    
+
 
         [HttpPost]
         public IActionResult UpdateFavorites(int productId, bool add)
@@ -349,12 +339,34 @@ namespace Sinitsyna.Controllers
 
             return Ok();
         }
-   
+
         private void SaveFavoritesToSession(List<int> favorites)
         {
             string favoritesJson = System.Text.Json.JsonSerializer.Serialize(favorites);
             HttpContext.Session.SetString("Favorites", favoritesJson);
         }
+
+        private async Task<List<T>> GetListAsync<T>(string endpoint)
+        {
+            var response = await _httpClient.GetAsync(endpoint);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<List<T>>();
+            }
+            return new List<T>();
+        }
+
+        private async Task<List<T>> GetListWithIncludesAsync<T>(string endpoint)
+        {
+            var response = await _httpClient.GetAsync(endpoint);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<List<T>>();
+            }
+            return new List<T>();
+        }
+
+
 
         public async Task<IActionResult> Index()
         {
@@ -363,40 +375,42 @@ namespace Sinitsyna.Controllers
                 return RedirectToAction("SignIn", "Home");
             }
 
-            var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.User_login == User.Identity.Name);
+            // Получаем пользователя по логину через API
+            var userResponse = await _httpClient.GetAsync($"users/bylogin/{User.Identity.Name}");
+            if (!userResponse.IsSuccessStatusCode)
+            {
+                return RedirectToAction("SignIn", "Home");
+            }
+
+            var user = await userResponse.Content.ReadFromJsonAsync<User>();
 
             if (user != null && user.Id_role == 3)
             {
-                ViewBag.UserName = user.First_name + " " + user.Last_name;
+                ViewBag.UserName = $"{user.First_name} {user.Last_name}";
                 ViewBag.UserRole = user.Role?.Role_name;
 
-                var boutiques = await _context.Boutiques.ToListAsync();
-                var products = await _context.Products.Include(p => p.ProductType)
-                                                       .Include(p => p.ProductMaterial)
-                                                       .Include(p => p.ProductImages)
-                                                       .ToListAsync();
-                var materials = await _context.ProductMaterials.ToListAsync();
-                var types = await _context.ProductTypes.ToListAsync();
-
-
-                var orders = await _context.Orders.Include(o => o.OrderItems).ToListAsync();
-
+                var boutiques = await GetListAsync<Boutique>("boutiques");
+                var products = await GetListWithIncludesAsync<Product>("products");
+                var materials = await GetListAsync<ProductMaterial>("productmaterials");
+                var types = await GetListAsync<ProductType>("producttypes");
+                var orders = await GetListWithIncludesAsync<Order>("orders");
 
                 var totalSales = orders.Sum(o => o.TotalPrice);
+
                 var salesOverTime = new List<decimal>(new decimal[12]);
                 var salesDistribution = orders.SelectMany(o => o.OrderItems)
-                                    .GroupBy(oi => new { oi.Product.Id_product, oi.Product.Product_name }) // Группируем по ProductId и ProductName
-                                    .Select(g => new SalesDistribution
-                                    {
-                                        ProductId = g.Key.Id_product,
-                                        ProductName = g.Key.Product_name, // Получаем название товара
-                                        TotalQuantity = g.Sum(oi => oi.Quantity)
-                                    }).ToList();
+                    .GroupBy(oi => new { oi.Product.Id_product, oi.Product.Product_name })
+                    .Select(g => new SalesDistribution
+                    {
+                        ProductId = g.Key.Id_product,
+                        ProductName = g.Key.Product_name,
+                        TotalQuantity = g.Sum(oi => oi.Quantity)
+                    }).ToList();
 
                 var now = DateTime.UtcNow;
                 foreach (var order in orders)
                 {
-                    var orderDate = order.OrderDate.Date; // Предполагается, что у вас есть OrderDate в модели Order
+                    var orderDate = order.OrderDate.Date;
                     if (orderDate >= now.AddMonths(-12))
                     {
                         int monthIndex = (orderDate.Month - now.Month + 12) % 12;
@@ -404,7 +418,6 @@ namespace Sinitsyna.Controllers
                     }
                 }
 
-                // Создание модели
                 var model = new ManagerViewModel
                 {
                     Products = products,
@@ -413,44 +426,47 @@ namespace Sinitsyna.Controllers
                     Types = types,
                     TotalSales = totalSales,
                     SalesDistributions = salesDistribution,
-                    SalesOverTime = salesOverTime // Заполнение данных о продажах за последние 12 месяцев
+                    SalesOverTime = salesOverTime
                 };
 
                 return View("ManagerDashboard", model);
-            
             }
 
             if (user != null && user.Id_role == 2)
             {
-                ViewBag.UserName = user.First_name + " " + user.Last_name;
+                ViewBag.UserName = $"{user.First_name} {user.Last_name}";
                 ViewBag.UserRole = user.Role?.Role_name;
-                var boutiques = await _context.Boutiques.ToListAsync();
-                var products = await _context.Products.Include(p => p.ProductType)
-                                                      .Include(p => p.ProductMaterial)
-                                                      .Include(p => p.ProductImages)
-                                                      .ToListAsync();
-                var materials = await _context.ProductMaterials.ToListAsync();
-                var types = await _context.ProductTypes.ToListAsync();
-                var users = await _context.Users.Include(u => u.Role).ToListAsync();
-                var role = await _context.Roles.ToListAsync();
 
-                var model = (products.AsEnumerable(), boutiques.AsEnumerable(), materials.AsEnumerable(), types.AsEnumerable(), users.AsEnumerable(), role.AsEnumerable());
+                var boutiques = await GetListAsync<Boutique>("boutiques");
+                var products = await GetListWithIncludesAsync<Product>("products");
+                var materials = await GetListAsync<ProductMaterial>("productmaterials");
+                var types = await GetListAsync<ProductType>("producttypes");
+                var users = await GetListWithIncludesAsync<User>("users");
+                var roles = await GetListAsync<Role>("roles");
+
+                var model = (products.AsEnumerable(), boutiques.AsEnumerable(), materials.AsEnumerable(), types.AsEnumerable(), users.AsEnumerable(), roles.AsEnumerable());
                 return View("AdminDashboard", model);
             }
 
             if (user != null && user.Id_role == 1)
             {
-                ViewBag.UserName = user.First_name + " " + user.Last_name;
+                ViewBag.UserName = $"{user.First_name} {user.Last_name}";
                 ViewBag.UserRole = user.Role?.Role_name;
-                var favoriteProductIds = await _context.Favorites
-               .Where(f => f.Id_user == user.Id_user)
-               .Select(f => f.Id_product)
-               .ToListAsync();
+
+                var favoriteProductIdsResponse = await _httpClient.GetAsync($"favorites/user/{user.Id_user}");
+                List<int> favoriteProductIds = new List<int>();
+                if (favoriteProductIdsResponse.IsSuccessStatusCode)
+                {
+                    favoriteProductIds = await favoriteProductIdsResponse.Content.ReadFromJsonAsync<List<int>>();
+                }
+
                 ViewBag.FavoriteProductIds = favoriteProductIds;
                 HttpContext.Session.Remove("ShoppingCart");
                 return View("Index");
             }
-            return View(await _context.Products.ToListAsync());
+
+            var allProducts = await GetListAsync<Product>("products");
+            return View(allProducts);
         }
 
 
@@ -489,12 +505,16 @@ namespace Sinitsyna.Controllers
             return BadRequest("Неверный формат");
         }
 
-
         private async Task<IEnumerable<SalesAnalytics>> GetSalesAnalytics()
         {
-            var orders = await _context.Orders.Include(o => o.OrderItems)
-                                               .ThenInclude(oi => oi.Product)
-                                               .ToListAsync();
+            var response = await _httpClient.GetAsync("orders");
+            if (!response.IsSuccessStatusCode)
+            {
+                // Обработка ошибки, например, вернуть пустой список
+                return Enumerable.Empty<SalesAnalytics>();
+            }
+
+            var orders = await response.Content.ReadFromJsonAsync<List<Order>>();
 
             var salesData = from order in orders
                             from item in order.OrderItems
@@ -503,13 +523,14 @@ namespace Sinitsyna.Controllers
                                 OrderId = order.Id,
                                 OrderDate = order.OrderDate,
                                 TotalPrice = order.TotalPrice,
-                                ProductName = item.Product.Product_name,
+                                ProductName = item.Product.Product_name, // используйте правильные имена свойств
                                 Quantity = item.Quantity,
                                 Price = item.Product.Price
                             };
 
             return salesData.ToList();
         }
+
 
         private ActionResult GeneratePdf(IEnumerable<SalesAnalytics> salesData, string totalSalesChartImage, string salesDistributionChartImage)
         {
@@ -596,12 +617,19 @@ namespace Sinitsyna.Controllers
             var jsonResult = JsonConvert.SerializeObject(salesData);
             return File(Encoding.UTF8.GetBytes(jsonResult), "application/json", "sales_report.json");
         }
-    
+
 
 
         public async Task<IActionResult> Orders()
         {
-            var orders = await _context.Orders.Include(o => o.OrderItems).ThenInclude(oi => oi.Product).ToListAsync();
+            var response = await _httpClient.GetAsync("orders");
+            if (!response.IsSuccessStatusCode)
+            {
+                // Обработка ошибки, например, показать пустой список или сообщение
+                return View(new List<Order>());
+            }
+
+            var orders = await response.Content.ReadFromJsonAsync<List<Order>>();
 
             return View(orders);
         }
@@ -615,79 +643,101 @@ namespace Sinitsyna.Controllers
 
             return View(cart);
         }
-        
-        public IActionResult Checkout()
+
+        public async Task<IActionResult> Checkout()
         {
-            ShoppingCart cart;
-
-            if (HttpContext.Session.Keys.Contains("ShoppingCart"))
+            if (!HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
-
-                decimal totalPrice = 0;
-                var boutiqueDetails = new List<Boutique>();
-
-                // Проверяем, аутентифицирован ли пользователь
-                if (!User.Identity.IsAuthenticated)
-                {
-                    return RedirectToAction("Login", "Account"); // Перенаправление на страницу входа
-                }
-
-                // Получаем UserId из утверждений
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier); // Обычно используется ClaimTypes.NameIdentifier для ID пользователя
-                int userId = userIdClaim != null ? Convert.ToInt32(userIdClaim.Value) : 0; // Преобразуем значение в int
-
-                // Создаем новый заказ
-                var order = new Order
-                {
-                    UserId = userId, // Устанавливаем UserId
-                    OrderDate = DateTime.Now,
-                    TotalPrice = 0,
-                    OrderItems = new List<OrderItem>()
-                };
-
-                foreach (var cartLine in cart.CartLines)
-                {
-                    var product = _context.Products.Include(p => p.Boutique).FirstOrDefault(p => p.Id_product == cartLine.ProductId);
-                    if (product != null)
-                    {
-                        totalPrice += product.Price * cartLine.Quantity;
-
-                        product.Quantity -= cartLine.Quantity;
-
-                        // Добавляем элемент заказа
-                        order.OrderItems.Add(new OrderItem
-                        {
-                            ProductId = product.Id_product,
-                            Quantity = cartLine.Quantity
-                        });
-
-                        boutiqueDetails.Add(new Boutique
-                        {
-                            Boutique_address = product.Boutique?.Boutique_address ?? "Адрес не указан",
-                            Opening_time = product.Boutique?.Opening_time ?? TimeSpan.Zero,
-                            Closing_time = product.Boutique?.Closing_time ?? TimeSpan.Zero
-                        });
-                    }
-                }
-
-                order.TotalPrice = totalPrice;
-
-                // Сохраняем изменения в базе данных
-                _context.Orders.Add(order);
-                _context.SaveChanges();
-
-                ViewBag.TotalPrice = totalPrice;
-                ViewBag.BoutiqueDetails = boutiqueDetails;
-
-                // Очищаем корзину после оформления заказа
-                HttpContext.Session.Remove("ShoppingCart");
-
-                return View(cart); // Передаем корзину в представление
+                return BadRequest("Корзина пуста.");
             }
 
-            return BadRequest("Корзина пуста.");
+            var cartJson = HttpContext.Session.GetString("ShoppingCart");
+            var cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(cartJson);
+
+            if (!User.Identity.IsAuthenticated)
+            {
+                return RedirectToAction("Login", "Account");
+            }
+
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+            {
+                return BadRequest("Не удалось получить ID пользователя.");
+            }
+
+            decimal totalPrice = 0;
+            var boutiqueDetails = new List<Boutique>();
+
+            var orderDto = new Order
+            {
+                UserId = userId,
+                OrderDate = DateTime.Now,
+                TotalPrice = 0,
+                OrderItems = new List<OrderItem>()
+            };
+
+            foreach (var cartLine in cart.CartLines)
+            {
+                var productResponse = await _httpClient.GetAsync($"products/{cartLine.ProductId}");
+                if (!productResponse.IsSuccessStatusCode)
+                {
+                    return BadRequest($"Товар с ID {cartLine.ProductId} не найден.");
+                }
+
+                var product = await productResponse.Content.ReadFromJsonAsync<Product>();
+
+                if (product == null)
+                {
+                    return BadRequest($"Товар с ID {cartLine.ProductId} не найден.");
+                }
+
+                totalPrice += product.Price * cartLine.Quantity;
+
+                orderDto.OrderItems.Add(new OrderItem
+                {
+                    ProductId = product.Id_product,
+                    Quantity = cartLine.Quantity
+                });
+
+                if (product.Boutique != null)
+                {
+                    boutiqueDetails.Add(new Boutique
+                    {
+                        Id_boutique = product.Boutique.Id_boutique,
+                        Boutique_address = product.Boutique.Boutique_address,
+                        Opening_time = product.Boutique.Opening_time,
+                        Closing_time = product.Boutique.Closing_time
+                    });
+                }
+                else
+                {
+                    boutiqueDetails.Add(new Boutique
+                    {
+                        Boutique_address = "Адрес не указан",
+                        Opening_time = TimeSpan.Zero,
+                        Closing_time = TimeSpan.Zero
+                    });
+                }
+            }
+
+            orderDto.TotalPrice = totalPrice;
+
+            var createOrderResponse = await _httpClient.PostAsJsonAsync("orders", orderDto);
+            if (!createOrderResponse.IsSuccessStatusCode)
+            {
+                var error = await createOrderResponse.Content.ReadAsStringAsync();
+                return BadRequest($"Ошибка при оформлении заказа: {error}");
+            }
+
+            ViewBag.TotalPrice = totalPrice;
+            ViewBag.BoutiqueDetails = boutiqueDetails;
+
+            HttpContext.Session.Remove("ShoppingCart");
+
+            return View(cart);
         }
+
+
 
         public IActionResult RemoveFromCart()
         {
@@ -744,14 +794,21 @@ namespace Sinitsyna.Controllers
             return Redirect("ShoppingCart"); // Перенаправляем на страницу корзины
         }
 
-        // Метод для отображения бутиков
+        // Метод для отображения бутиков через API
         public async Task<IActionResult> Boutiques()
         {
-            var boutiques = await _context.Boutiques.ToListAsync();
+            var response = await _httpClient.GetAsync("boutiques");
+            if (!response.IsSuccessStatusCode)
+            {
+                // Обработка ошибки, например, вернуть пустой список или сообщение
+                return View(new List<Boutique>());
+            }
+
+            var boutiques = await response.Content.ReadFromJsonAsync<List<Boutique>>();
             return View(boutiques);
         }
 
-        // Метод для создания нового бутика
+        // Метод для создания нового бутика через API
         [HttpPost]
         public async Task<IActionResult> CreateBoutique(string Boutique_address, TimeSpan Opening_time, TimeSpan Closing_time)
         {
@@ -762,341 +819,451 @@ namespace Sinitsyna.Controllers
                 Closing_time = Closing_time
             };
 
-            _context.Boutiques.Add(newBoutique);
-
-            await _context.SaveChangesAsync();
-
-            return Json(new { success = true });
+            var response = await _httpClient.PostAsJsonAsync("boutiques", newBoutique);
+            if (response.IsSuccessStatusCode)
+            {
+                return Json(new { success = true });
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
         }
 
-        // Метод для редактирования бутика
+        // Метод для редактирования бутика через API
         [HttpPost]
         public async Task<IActionResult> EditBoutique(int id, string boutiqueAddress, TimeSpan openingTime, TimeSpan closingTime)
         {
-            var existingBoutique = await _context.Boutiques.FindAsync(id);
-
-            if (existingBoutique != null)
+            // Получаем существующий бутик из API
+            var getResponse = await _httpClient.GetAsync($"boutiques/{id}");
+            if (!getResponse.IsSuccessStatusCode)
             {
-                existingBoutique.Boutique_address = boutiqueAddress;
-                existingBoutique.Opening_time = openingTime;
-                existingBoutique.Closing_time = closingTime;
-                await _context.SaveChangesAsync();
-
-                return Json(new { success = true });
+                return Json(new { success = false, error = "Бутик не найден" });
             }
 
-            return Json(new { success = false });
-        }
+            var existingBoutique = await getResponse.Content.ReadFromJsonAsync<Boutique>();
+            if (existingBoutique == null)
+            {
+                return Json(new { success = false, error = "Бутик не найден" });
+            }
 
-        // Метод для удаления бутика
+            // Обновляем поля
+            existingBoutique.Boutique_address = boutiqueAddress;
+            existingBoutique.Opening_time = openingTime;
+            existingBoutique.Closing_time = closingTime;
+
+            // Отправляем обновлённый бутик на API (PUT запрос)
+            var putResponse = await _httpClient.PutAsJsonAsync($"boutiques/{id}", existingBoutique);
+            if (putResponse.IsSuccessStatusCode)
+            {
+                return Json(new { success = true });
+            }
+            else
+            {
+                var error = await putResponse.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
+        }
+        // Метод для удаления бутика через API
         [HttpPost]
         public async Task<IActionResult> DeleteBoutique(int id)
         {
-            var existingBoutique = await _context.Boutiques.FindAsync(id);
-
-            if (existingBoutique != null)
+            var response = await _httpClient.DeleteAsync($"boutiques/{id}");
+            if (response.IsSuccessStatusCode)
             {
-                _context.Boutiques.Remove(existingBoutique);
-                await _context.SaveChangesAsync();
-
                 return Json(new { success = true });
             }
-
-            return Json(new { success = false });
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
         }
 
-        // Метод для создания нового типа продукта
+        // Метод для создания нового типа продукта через API
         [HttpPost]
         public async Task<IActionResult> CreateProductType(string Product_type_name)
         {
             var newType = new ProductType { Product_type_name = Product_type_name };
 
-            _context.ProductTypes.Add(newType);
-
-            await _context.SaveChangesAsync();
-
-            return Json(new { success = true });
+            var response = await _httpClient.PostAsJsonAsync("producttypes", newType);
+            if (response.IsSuccessStatusCode)
+            {
+                return Json(new { success = true });
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
         }
 
-        // Метод для редактирования типа продукта
+        // Метод для редактирования типа продукта через API
         [HttpPost]
         public async Task<IActionResult> EditProductType(int id, string productTypeName)
         {
-            var existingType = await _context.ProductTypes.FindAsync(id);
-
-            if (existingType != null)
+            // Получаем существующий тип продукта
+            var getResponse = await _httpClient.GetAsync($"producttypes/{id}");
+            if (!getResponse.IsSuccessStatusCode)
             {
-                existingType.Product_type_name = productTypeName;
-                await _context.SaveChangesAsync();
-
-                return Json(new { success = true });
+                return Json(new { success = false, error = "Тип продукта не найден" });
             }
 
-            return Json(new { success = false });
-        }
+            var existingType = await getResponse.Content.ReadFromJsonAsync<ProductType>();
+            if (existingType == null)
+            {
+                return Json(new { success = false, error = "Тип продукта не найден" });
+            }
 
-        // Метод для удаления типа продукта
+            existingType.Product_type_name = productTypeName;
+
+            var putResponse = await _httpClient.PutAsJsonAsync($"producttypes/{id}", existingType);
+            if (putResponse.IsSuccessStatusCode)
+            {
+                return Json(new { success = true });
+            }
+            else
+            {
+                var error = await putResponse.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
+        }
+        // Метод для удаления типа продукта через API
         [HttpPost]
         public async Task<IActionResult> DeleteProductType(int id)
         {
-            var existingType = await _context.ProductTypes.FindAsync(id);
-
-            if (existingType != null)
+            var response = await _httpClient.DeleteAsync($"producttypes/{id}");
+            if (response.IsSuccessStatusCode)
             {
-                _context.ProductTypes.Remove(existingType);
-                await _context.SaveChangesAsync();
-
                 return Json(new { success = true });
             }
-
-            return Json(new { success = false });
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
         }
 
-        // Метод для создания нового материала
+        // Метод для создания нового материала через API
         [HttpPost]
         public async Task<IActionResult> CreateProductMaterial(string Material_name)
         {
             var newMaterial = new ProductMaterial { Material_name = Material_name };
 
-            _context.ProductMaterials.Add(newMaterial);
-
-            await _context.SaveChangesAsync();
-
-            return Json(new { success = true });
+            var response = await _httpClient.PostAsJsonAsync("productmaterials", newMaterial);
+            if (response.IsSuccessStatusCode)
+            {
+                return Json(new { success = true });
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
         }
 
-        // Метод для редактирования материала
+        // Метод для редактирования материала через API
         [HttpPost]
         public async Task<IActionResult> EditProductMaterial(int id, string materialName)
         {
-            var existingMaterial = await _context.ProductMaterials.FindAsync(id);
-
-            if (existingMaterial != null)
+            // Получаем существующий материал
+            var getResponse = await _httpClient.GetAsync($"productmaterials/{id}");
+            if (!getResponse.IsSuccessStatusCode)
             {
-                existingMaterial.Material_name = materialName;
-                await _context.SaveChangesAsync();
-
-                return Json(new { success = true });
+                return Json(new { success = false, error = "Материал не найден" });
             }
 
-            return Json(new { success = false });
+            var existingMaterial = await getResponse.Content.ReadFromJsonAsync<ProductMaterial>();
+            if (existingMaterial == null)
+            {
+                return Json(new { success = false, error = "Материал не найден" });
+            }
+
+            existingMaterial.Material_name = materialName;
+
+            var putResponse = await _httpClient.PutAsJsonAsync($"productmaterials/{id}", existingMaterial);
+            if (putResponse.IsSuccessStatusCode)
+            {
+                return Json(new { success = true });
+            }
+            else
+            {
+                var error = await putResponse.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
         }
 
-        // Метод для удаления материала
+        // Метод для удаления материала через API
         [HttpPost]
         public async Task<IActionResult> DeleteProductMaterial(int id)
         {
-            var existingMaterial = await _context.ProductMaterials.FindAsync(id);
-
-            if (existingMaterial != null)
+            var response = await _httpClient.DeleteAsync($"productmaterials/{id}");
+            if (response.IsSuccessStatusCode)
             {
-                _context.ProductMaterials.Remove(existingMaterial);
-                await _context.SaveChangesAsync();
-
                 return Json(new { success = true });
             }
-
-            return Json(new { success = false });
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, error });
+            }
         }
-
-        // Метод для отображения ролей
         public async Task<IActionResult> Roles()
         {
-            var roles = await _context.Roles.ToListAsync(); // Предполагается, что у вас есть DbSet<Role> в контексте
+            var response = await _httpClient.GetAsync("roles");
+            if (!response.IsSuccessStatusCode)
+            {
+                // Обработка ошибки, например, вернуть пустой список
+                return View(new List<Role>());
+            }
+
+            var roles = await response.Content.ReadFromJsonAsync<List<Role>>();
             return View(roles);
         }
+
+        // Метод для создания новой роли через API
         [HttpPost]
         public async Task<IActionResult> CreateRole(string Role_name)
         {
-            var newRole = new Role { Role_name = Role_name }; // Не устанавливайте Id_role
-            _context.Roles.Add(newRole);
+            var newRole = new Role { Role_name = Role_name };
 
-            try
+            var response = await _httpClient.PostAsJsonAsync("roles", newRole);
+            if (response.IsSuccessStatusCode)
             {
-                await _context.SaveChangesAsync();
                 return Json(new { success = true });
             }
-            catch (DbUpdateException ex)
+            else
             {
-                // Логирование ошибки
-                Console.WriteLine(ex.InnerException?.Message);
-                return Json(new { success = false, message = "Ошибка при сохранении роли." });
-            }
-            catch (Exception ex)
-            {
-                // Логирование ошибки
-                Console.WriteLine(ex.Message);
-                return Json(new { success = false, message = "Произошла ошибка." });
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, message = error });
             }
         }
-        // Метод для редактирования роли
+
+        // Метод для редактирования роли через API
         [HttpPost]
         public async Task<IActionResult> EditRole(int id, string roleName)
         {
-            var existingRole = await _context.Roles.FindAsync(id);
-            if (existingRole != null)
+            var getResponse = await _httpClient.GetAsync($"roles/{id}");
+            if (!getResponse.IsSuccessStatusCode)
             {
-                existingRole.Role_name = roleName; // Обновляем название роли
-                await _context.SaveChangesAsync();
-                return Json(new { success = true });
+                return Json(new { success = false, message = "Роль не найдена" });
             }
 
-            return Json(new { success = false });
+            var existingRole = await getResponse.Content.ReadFromJsonAsync<Role>();
+            if (existingRole == null)
+            {
+                return Json(new { success = false, message = "Роль не найдена" });
+            }
+
+            existingRole.Role_name = roleName;
+
+            var putResponse = await _httpClient.PutAsJsonAsync($"roles/{id}", existingRole);
+            if (putResponse.IsSuccessStatusCode)
+            {
+                return Json(new { success = true });
+            }
+            else
+            {
+                var error = await putResponse.Content.ReadAsStringAsync();
+                return Json(new { success = false, message = error });
+            }
         }
 
-        // Метод для удаления роли
+        // Метод для удаления роли через API
         [HttpPost]
         public async Task<IActionResult> DeleteRole(int id)
         {
-            var role = await _context.Roles.FindAsync(id);
-            if (role != null)
+            var response = await _httpClient.DeleteAsync($"roles/{id}");
+            if (response.IsSuccessStatusCode)
             {
-                _context.Roles.Remove(role);
-                await _context.SaveChangesAsync();
                 return Json(new { success = true });
             }
-
-            return Json(new { success = false });
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, message = error });
+            }
         }
 
-        // Метод для отображения пользователей
+        // Метод для отображения пользователей через API
         public async Task<IActionResult> Users()
         {
-            var users = await _context.Users.Include(u => u.Role).ToListAsync();
+            var response = await _httpClient.GetAsync("users");
+            if (!response.IsSuccessStatusCode)
+            {
+                return View(new List<User>());
+            }
+            var users = await response.Content.ReadFromJsonAsync<List<User>>();
             return View(users);
         }
 
-        // Метод для добавления нового пользователя
+        // Метод для добавления нового пользователя через API
         [HttpPost]
         public async Task<IActionResult> CreateUser(User user)
         {
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
-            return Json(new { success = true });
+            var response = await _httpClient.PostAsJsonAsync("users", user);
+            if (response.IsSuccessStatusCode)
+                return Json(new { success = true });
+            var error = await response.Content.ReadAsStringAsync();
+            return Json(new { success = false, message = error });
         }
 
-        // Метод для редактирования пользователя
+        // Метод для редактирования пользователя через API
         [HttpPost]
         public async Task<IActionResult> EditUser(int id, User user)
         {
+            var getResponse = await _httpClient.GetAsync($"users/{id}");
+            if (!getResponse.IsSuccessStatusCode)
+                return Json(new { success = false, message = "Пользователь не найден" });
 
-            var existingUser = await _context.Users.FindAsync(id);
-            if (existingUser != null)
-            {
-                existingUser.First_name = user.First_name;
-                existingUser.Last_name = user.Last_name;
-                existingUser.Middle_name = user.Middle_name;
-                existingUser.Id_role = user.Id_role;
-                existingUser.User_login = user.User_login;
-                existingUser.User_password = user.User_password; // Не забудьте хэшировать пароль
+            var existingUser = await getResponse.Content.ReadFromJsonAsync<User>();
+            if (existingUser == null)
+                return Json(new { success = false, message = "Пользователь не найден" });
 
-                await _context.SaveChangesAsync();
+            // Обновляем поля
+            existingUser.First_name = user.First_name;
+            existingUser.Last_name = user.Last_name;
+            existingUser.Middle_name = user.Middle_name;
+            existingUser.Id_role = user.Id_role;
+            existingUser.User_login = user.User_login;
+            existingUser.User_password = user.User_password; // Учтите, что пароль нужно хэшировать
+
+            var putResponse = await _httpClient.PutAsJsonAsync($"users/{id}", existingUser);
+            if (putResponse.IsSuccessStatusCode)
                 return Json(new { success = true });
-            }
-            
-            return Json(new { success = false });
+
+            var error = await putResponse.Content.ReadAsStringAsync();
+            return Json(new { success = false, message = error });
         }
 
-        // Метод для удаления пользователя
+        // Метод для удаления пользователя через API
         [HttpPost]
         public async Task<IActionResult> DeleteUser(int id)
         {
-            var user = await _context.Users.FindAsync(id);
-            if (user != null)
-            {
-                _context.Users.Remove(user);
-                await _context.SaveChangesAsync();
+            var response = await _httpClient.DeleteAsync($"users/{id}");
+            if (response.IsSuccessStatusCode)
                 return Json(new { success = true });
-            }
-            return Json(new { success = false });
+
+            var error = await response.Content.ReadAsStringAsync();
+            return Json(new { success = false, message = error });
         }
 
+        // Метод для создания продукта через API
         [HttpPost]
-        public IActionResult CreateProduct(Product model, string imageUrl)
+        public async Task<IActionResult> CreateProduct(Product model, string imageUrl)
         {
-            // Сохранение товара
-            _context.Products.Add(model);
-            _context.SaveChanges();
+            var response = await _httpClient.PostAsJsonAsync("products", model);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return Json(new { success = false, message = error });
+            }
 
-            // Сохранение изображения
-            if (!string.IsNullOrEmpty(imageUrl))
+            var createdProduct = await response.Content.ReadFromJsonAsync<Product>();
+
+            if (!string.IsNullOrEmpty(imageUrl) && createdProduct != null)
             {
                 var productImage = new ProductImage
                 {
                     Url_image = imageUrl,
-                    Id_product = model.Id_product // Предполагается, что Id_product заполняется после сохранения
+                    Id_product = createdProduct.Id_product
                 };
-                _context.ProductImages.Add(productImage);
-                _context.SaveChanges();
+                var imgResponse = await _httpClient.PostAsJsonAsync("productimages", productImage);
+                if (!imgResponse.IsSuccessStatusCode)
+                {
+                    var error = await imgResponse.Content.ReadAsStringAsync();
+                    return Json(new { success = false, message = error });
+                }
             }
 
             return Json(new { success = true });
-
         }
+
+        // Метод для редактирования продукта через API
         [HttpPost]
         public async Task<IActionResult> EditProduct(Product product, List<string> ImageUrls)
         {
-            _context.Products.Update(product);
-
-            // Удаляем старые изображения (если необходимо)
-            var existingImages = await _context.ProductImages.Where(pi => pi.Id_product == product.Id_product).ToListAsync();
-
-            foreach (var image in existingImages)
+            var putResponse = await _httpClient.PutAsJsonAsync($"products/{product.Id_product}", product);
+            if (!putResponse.IsSuccessStatusCode)
             {
-                _context.ProductImages.Remove(image);
+                var error = await putResponse.Content.ReadAsStringAsync();
+                return Json(new { success = false, message = error });
             }
 
-            // Сохранение новых изображений
+            // Удаляем старые изображения
+            var imagesResponse = await _httpClient.GetAsync($"productimages/product/{product.Id_product}");
+            if (imagesResponse.IsSuccessStatusCode)
+            {
+                var existingImages = await imagesResponse.Content.ReadFromJsonAsync<List<ProductImage>>();
+                if (existingImages != null)
+                {
+                    foreach (var img in existingImages)
+                    {
+                        await _httpClient.DeleteAsync($"productimages/{img.Id_image}");
+                    }
+                }
+            }
+
+            // Добавляем новые изображения
             foreach (var url in ImageUrls)
             {
                 var productImage = new ProductImage
                 {
                     Url_image = url,
-                    Id_product = product.Id_product // Связываем изображение с товаром
+                    Id_product = product.Id_product
                 };
-                _context.ProductImages.Add(productImage);
+                await _httpClient.PostAsJsonAsync("productimages", productImage);
             }
 
-            await _context.SaveChangesAsync();
-
-            return Json(new { success = true });           
+            return Json(new { success = true });
         }
 
+        // Метод для удаления продукта через API
         [HttpPost]
         public async Task<IActionResult> DeleteProduct(int id)
         {
-            var product = await _context.Products.FindAsync(id);
-            if (product != null)
+            // Удаляем изображения
+            var imagesResponse = await _httpClient.GetAsync($"productimages/product/{id}");
+            if (imagesResponse.IsSuccessStatusCode)
             {
-                // Удаляем связанные изображения
-                var images = await _context.ProductImages.Where(pi => pi.Id_product == id).ToListAsync();
-                _context.ProductImages.RemoveRange(images);
-
-                // Удаляем продукт
-                _context.Products.Remove(product);
-                await _context.SaveChangesAsync();
-
-                return Json(new { success = true });
+                var images = await imagesResponse.Content.ReadFromJsonAsync<List<ProductImage>>();
+                if (images != null)
+                {
+                    foreach (var img in images)
+                    {
+                        await _httpClient.DeleteAsync($"productimages/{img.Id_image}");
+                    }
+                }
             }
-            return Json(new { success = false });
+
+            // Удаляем продукт
+            var response = await _httpClient.DeleteAsync($"products/{id}");
+            if (response.IsSuccessStatusCode)
+                return Json(new { success = true });
+
+            var error = await response.Content.ReadAsStringAsync();
+            return Json(new { success = false, message = error });
         }
 
-  
         private bool IsUserAuthorized()
         {
             var userRole = User.FindFirst("Role")?.Value; // Получаем роль пользователя из claims
             return userRole == "Администратор" || userRole == "Менеджер"; // Проверка на администраторов и менеджеров
         }
 
-        private bool ProductExists(int id)
+        // Проверка существования продукта через API
+        private async Task<bool> ProductExists(int id)
         {
-            return _context.Products.Any(e => e.Id_product == id);
+            var response = await _httpClient.GetAsync($"products/{id}");
+            return response.IsSuccessStatusCode;
         }
 
-        // Проверка существования пользователя
-        private bool UserExists(int id)
+        // Проверка существования пользователя через API
+        private async Task<bool> UserExists(int id)
         {
-            return _context.Users.Any(e => e.Id_user == id);
+            var response = await _httpClient.GetAsync($"users/{id}");
+            return response.IsSuccessStatusCode;
         }
 
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
@@ -1118,37 +1285,50 @@ namespace Sinitsyna.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> SignIn(LoginModel model)
         {
-            if (ModelState.IsValid)
+            if (!ModelState.IsValid)
             {
-                User user = await _context.Users
-                    .Include(u => u.Role) // Подключаем роль
-                    .FirstOrDefaultAsync(u => u.User_login == model.Login && u.User_password == model.Password);
-
-                if (user != null)
-                {
-                    await Authenticate(user); // Передаем объект user в Authenticate
-                    return RedirectToAction("Index", "Home");
-                }
-
-                ModelState.AddModelError("", "Некорректные логин или пароль");
+                return View(model);
             }
 
-            return RedirectToAction("SignIn", "Home");
+            var response = await _httpClient.GetAsync($"users/login?login={Uri.EscapeDataString(model.Login)}&password={Uri.EscapeDataString(model.Password)}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                ModelState.AddModelError("", "Некорректные логин или пароль");
+                return View(model);
+            }
+
+            var user = await response.Content.ReadFromJsonAsync<User>();
+            if (user == null)
+            {
+                ModelState.AddModelError("", "Некорректные логин или пароль");
+                return View(model);
+            }
+
+            await Authenticate(user);
+
+            return RedirectToAction("Index", "Home");
         }
 
 
         private async Task Authenticate(User user)
         {
+            if (user == null)
+                throw new ArgumentNullException(nameof(user));
+
+            string userLogin = user.User_login ?? throw new ArgumentNullException(nameof(user.User_login));
+            string userId = user.Id_user.ToString() ?? throw new ArgumentNullException(nameof(user.Id_user));
+
             var claims = new List<Claim>
     {
-        new Claim(ClaimTypes.Name, user.User_login),
-        new Claim(ClaimTypes.NameIdentifier, user.Id_user.ToString()), // Добавляем ID пользователя
-        new Claim(ClaimTypes.Role, user.Role.Role_name) // Добавляем роль
+        new Claim(ClaimTypes.Name, userLogin),
+        new Claim(ClaimTypes.NameIdentifier, userId),
     };
 
-            ClaimsIdentity id = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme, ClaimTypes.Name, ClaimTypes.Role);
+            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme, ClaimTypes.Name, ClaimTypes.Role);
+            var principal = new ClaimsPrincipal(identity);
 
-            await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(id));
+            await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
         }
 
         public async Task<IActionResult> Logout()
@@ -1164,7 +1344,7 @@ namespace Sinitsyna.Controllers
         {
             return View();
         }
-        
+
         private bool IsUserValid(User person)
         {
             // Создаем новый список для ошибок
@@ -1187,38 +1367,65 @@ namespace Sinitsyna.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> SignUp(User person)
         {
-            if (IsUserValid(person))
+            //if (!ModelState.IsValid)
+            //{
+            //    return View(person);
+            //}
+
+            // Проверяем, существует ли пользователь с таким логином через API
+            var existingUserResponse = await _httpClient.GetAsync($"users/bylogin/{Uri.EscapeDataString(person.User_login)}");
+            if (existingUserResponse.IsSuccessStatusCode)
             {
-                // Проверка на существование пользователя
-                var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.User_login == person.User_login);
-                if (existingUser != null)
-                {
-                    ModelState.AddModelError("User_login", "Пользователь с таким логином уже существует.");
-                    return View(person);
-                }
+                ModelState.AddModelError("UserLogin", "Пользователь с таким логином уже существует.");
+                return View(person);
+            }
+            else if (existingUserResponse.StatusCode != System.Net.HttpStatusCode.NotFound)
+            {
+                ModelState.AddModelError("", "Ошибка при проверке существования пользователя.");
+                return View(person);
+            }
 
-                // Добавление пользователя в базу данных
-                _context.Users.Add(person);
-                await _context.SaveChangesAsync();
-
+            var createResponse = await _httpClient.PostAsJsonAsync("users", person);
+            if (createResponse.IsSuccessStatusCode)
+            {
                 TempData["SuccessMessage"] = "Вы успешно зарегистрированы!";
                 return RedirectToAction("SignUp");
             }
-            else
+            else if (createResponse.StatusCode == System.Net.HttpStatusCode.BadRequest)
             {
-                var errors = new List<string>();
-                var validationResults = new List<ValidationResult>();
-                var context = new ValidationContext(person);
-                Validator.TryValidateObject(person, context, validationResults, true);
+                var errorJson = await createResponse.Content.ReadAsStringAsync();
 
-                foreach (var error in validationResults)
+                var validationProblem = System.Text.Json.JsonSerializer.Deserialize<Models.ValidationProblemDetails>(errorJson, new System.Text.Json.JsonSerializerOptions
                 {
-                    errors.AddRange(error.MemberNames.Select(m => $"{m}: {error.ErrorMessage}"));
-                    Console.WriteLine(string.Join(", ", errors));
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (validationProblem?.Errors != null)
+                {
+                    foreach (var key in validationProblem.Errors.Keys)
+                    {
+                        foreach (var errorMsg in validationProblem.Errors[key])
+                        {
+                            ModelState.AddModelError(key, errorMsg);
+                        }
+                    }
+                }
+                else
+                {
+                    ModelState.AddModelError("", "Ошибка при регистрации");
                 }
                 return View(person);
             }
+            else
+            {
+                var error = await createResponse.Content.ReadAsStringAsync();
+                ModelState.AddModelError("", $"Ошибка при регистрации: {error}");
+                return View(person);
+            }
+
+
         }
+
 
         [HttpPost]
         public IActionResult ToggleTheme()
@@ -1237,76 +1444,103 @@ namespace Sinitsyna.Controllers
 
         public async Task<IActionResult> Catalog()
         {
-            var products = await _context.Products
-                .Include(p => p.ProductType)
-                .Include(p => p.ProductMaterial)
-                .Include(p => p.ProductImages)
-                .ToListAsync();
+            // Получаем продукты с включениями через API
+            var productsResponse = await _httpClient.GetAsync("products");
+            if (!productsResponse.IsSuccessStatusCode)
+            {
+                // Обработка ошибки, например вернуть пустой список
+                return View("Catalog", new CatalogViewModel());
+            }
+            var products = await productsResponse.Content.ReadFromJsonAsync<List<Product>>();
 
-            var materials = await _context.ProductMaterials.ToListAsync();
-            var types = await _context.ProductTypes.ToListAsync();
+            // Получаем материалы
+            var materialsResponse = await _httpClient.GetAsync("productmaterials");
+            var materials = materialsResponse.IsSuccessStatusCode
+                ? await materialsResponse.Content.ReadFromJsonAsync<List<ProductMaterial>>()
+                : new List<ProductMaterial>();
 
+            // Получаем типы продуктов
+            var typesResponse = await _httpClient.GetAsync("producttypes");
+            var types = typesResponse.IsSuccessStatusCode
+                ? await typesResponse.Content.ReadFromJsonAsync<List<ProductType>>()
+                : new List<ProductType>();
+
+            // Получаем ID пользователя, если аутентифицирован
             int userId = 0;
             if (User.Identity.IsAuthenticated)
             {
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out userId))
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int parsedUserId))
                 {
-                    // Пользователь аутентифицирован, ID пользователя получен
-                }
-                else
-                {
-                    // Обработка ошибки: не удалось получить ID пользователя
-                    // ...
+                    userId = parsedUserId;
                 }
             }
 
-            // Получаем список ID избранных товаров для пользователя
+            // Получаем список ID избранных товаров пользователя через API
             List<int> favoriteProductIds = new List<int>();
             if (userId > 0)
             {
-                favoriteProductIds = await _context.Favorites
-                    .Where(f => f.Id_user == userId)
-                    .Select(f => f.Id_product)
-                    .ToListAsync();
+                var favResponse = await _httpClient.GetAsync($"favorites/user/{userId}");
+                if (favResponse.IsSuccessStatusCode)
+                {
+                    favoriteProductIds = await favResponse.Content.ReadFromJsonAsync<List<int>>();
+                }
             }
 
             // Получаем корзину из сессии
             ShoppingCart cart = new ShoppingCart();
             if (HttpContext.Session.Keys.Contains("ShoppingCart"))
             {
-                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(HttpContext.Session.GetString("ShoppingCart"));
+                var cartJson = HttpContext.Session.GetString("ShoppingCart");
+                cart = System.Text.Json.JsonSerializer.Deserialize<ShoppingCart>(cartJson);
             }
 
-            // Создаем модель для передачи в представление
+            // Создаём модель для передачи в представление
             var model = new CatalogViewModel
             {
                 Products = products,
                 Materials = materials,
                 Types = types,
                 ShoppingCart = cart,
-                ReviewCounts = new Dictionary<int, int>(), // Initialize ReviewCounts
-                AverageRatings = new Dictionary<int, decimal>() // Initialize AverageRatings
+                ReviewCounts = new Dictionary<int, int>(),
+                AverageRatings = new Dictionary<int, decimal>()
             };
-            // Заполняем данные о количестве отзывов и среднем рейтинге
+
+            // Для каждого продукта получаем количество отзывов и средний рейтинг через API
             foreach (var product in model.Products)
             {
-                // Количество отзывов
-                model.ReviewCounts[product.Id_product] = await _context.Reviews
-                    .CountAsync(r => r.Id_product == product.Id_product);
+                var countResponse = await _httpClient.GetAsync($"reviews/count/{product.Id_product}");
+                if (countResponse.IsSuccessStatusCode)
+                {
+                    model.ReviewCounts[product.Id_product] = await countResponse.Content.ReadFromJsonAsync<int>();
+                }
+                else
+                {
+                    model.ReviewCounts[product.Id_product] = 0;
+                }
 
-                // Средний рейтинг
                 if (model.ReviewCounts[product.Id_product] > 0)
                 {
-                    model.AverageRatings[product.Id_product] = await _context.Reviews
-                        .Where(r => r.Id_product == product.Id_product)
-                        .AverageAsync(r => (decimal)r.Rating);
+                    var avgResponse = await _httpClient.GetAsync($"reviews/average/{product.Id_product}");
+                    if (avgResponse.IsSuccessStatusCode)
+                    {
+                        model.AverageRatings[product.Id_product] = await avgResponse.Content.ReadFromJsonAsync<decimal>();
+                    }
+                    else
+                    {
+                        model.AverageRatings[product.Id_product] = 0m;
+                    }
+                }
+                else
+                {
+                    model.AverageRatings[product.Id_product] = 0m;
                 }
             }
-            // Передаем список ID избранных товаров в представление через ViewBag
+
             ViewBag.FavoriteProductIds = favoriteProductIds;
 
             return View("Catalog", model);
         }
+
     }
 }

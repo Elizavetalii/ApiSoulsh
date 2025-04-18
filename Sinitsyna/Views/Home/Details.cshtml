@@ -65,10 +65,7 @@
 
 
 <div>
-    <div>
-        @* Внедряем View Component для отображения среднего рейтинга *@
-        @await Component.InvokeAsync("AverageRating", new { productId = Model.Product.Id_product })
-    </div>
+   
     <h3>Добавить отзыв:</h3>
     @await Html.PartialAsync("_AddReviewPartial", Model.AddReview)
     @* Отображение отзывов *@

@@ -8,14 +8,19 @@ var builder = WebApplication.CreateBuilder(args);
 // Добавление сервисов
 builder.Services.AddControllersWithViews();
 string connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
+//builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
 
-// Настройка аутентификации
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
-        options.LoginPath = new Microsoft.AspNetCore.Http.PathString("/Home/SignIn");
+        options.LoginPath = "/Home/SignIn";
+        options.AccessDeniedPath = "/Home/AccessDenied";
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(20);
+        options.SlidingExpiration = true;
     });
+
+
 
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession();
